@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"container/list"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -18,42 +19,80 @@ func RunServer() {
 	errwriter.WriteString("msg welcome!\n")
 	errwriter.Flush()
 
-	//writer := bufio.NewWriter(os.Stdout)
 	//basePath := "/home/darren/syncing/dir1/"
 
 	reader := bufio.NewReader(os.Stdin)
+	writer := bufio.NewWriter(os.Stdout)
+
 	lenBuf := make([]byte, 4)
 	_, err := io.ReadFull(reader, lenBuf)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ReadFull error: %s\n", err)
-		os.Exit(-1)
+		return
 	}
 
 	length := binary.LittleEndian.Uint32(lenBuf)
 	errwriter.WriteString("msg recv len: " + strconv.Itoa(int(length)) + "\n")
-	errwriter.Flush()
 
 	dataBuf := make([]byte, length)
 	n, err := io.ReadFull(reader, dataBuf)
 	if err != nil {
 		errwriter.WriteString("msg err " + err.Error())
-		os.Exit(-2)
+		return
 	}
 	errwriter.WriteString("msg recv data len: " + strconv.Itoa(int(n)) + "\n")
-	errwriter.Flush()
 
 	// bstr := fmt.Sprintf("%X", dataBuf)
 	// errwriter.WriteString("msg recv data bin: " + bstr + "\n")
 	// errwriter.Flush()
 
+	fileIdStruct, err := FileListCheck(dataBuf)
+	errwriter.WriteString("msg fileIdStruct: " + strconv.Itoa(len(fileIdStruct.IdList)) + "\n")
+
+	if err != nil {
+		errwriter.WriteString("msg err FileListCheck: " + err.Error())
+		return
+	}
+	fidBytes, err := proto.Marshal(fileIdStruct)
+	if err != nil {
+		errwriter.WriteString("msg err Marshal: " + err.Error())
+		return
+	}
+	lenBuf = make([]byte, 4)
+	binary.LittleEndian.PutUint32(lenBuf, uint32(len(fidBytes)))
+	n, err = writer.Write(lenBuf)
+	if err != nil {
+		errwriter.WriteString("msg err Writer lenbuf: " + err.Error())
+		return
+	}
+
+	n, err = writer.Write(fidBytes)
+	if err != nil {
+		errwriter.WriteString("msg err Writer bidBytes: " + err.Error())
+		return
+	}
+	errwriter.WriteString("msg bidBytes len: " + strconv.Itoa(n) + "\n")
+	errwriter.Flush()
+	writer.Flush()
+
+	//just waiting for sender msg
+	lenBuf = make([]byte, 4)
+	io.ReadFull(reader, lenBuf)
+}
+
+func FileListCheck(dataBuf []byte) (*gproto.FileIdStruct, error) {
+	errwriter := bufio.NewWriter(os.Stderr)
+
 	var ds gproto.DirStruct
-	err = proto.Unmarshal(dataBuf, &ds)
+	err := proto.Unmarshal(dataBuf, &ds)
 	if err != nil {
 		errwriter.WriteString("msg err " + err.Error())
-		os.Exit(-3)
+		errwriter.Flush()
+		return nil, errors.New(err.Error())
 	}
 	errwriter.WriteString("msg Unmarshal data success! getname: " + ds.GetName() + "\n")
-	errwriter.Flush()
+
+	var fileIdStruct gproto.FileIdStruct
 
 	pathStack := list.New()                        //用于计算全路径
 	visitedMap := make(map[*gproto.DirStruct]bool) //记录节点是否访问过
@@ -87,17 +126,16 @@ func RunServer() {
 			if err != nil {
 				if os.IsNotExist(err) {
 					errwriter.WriteString("msg missing " + filePath + "\n")
-					errwriter.Flush()
+					fileIdStruct.IdList = append(fileIdStruct.IdList, file.GetFid())
 					continue
 				}
 				errwriter.WriteString("msg err " + err.Error() + "\n")
-				errwriter.Flush()
 				continue
 			}
 
 			if file.Mtime != fileInfo.ModTime().Unix() || file.Size != fileInfo.Size() {
 				errwriter.WriteString("msg diff " + filePath + "\n")
-				errwriter.Flush()
+				fileIdStruct.IdList = append(fileIdStruct.IdList, file.GetFid())
 			}
 		}
 
@@ -111,7 +149,6 @@ func RunServer() {
 				for _, child := range item.DirList {
 					if !visitedMap[child] {
 						childVisited = false
-						// fmt.Fprintf(os.Stderr, "\n")
 						break
 					}
 				}
@@ -134,10 +171,9 @@ func RunServer() {
 		}
 
 		for _, dir := range ds.GetDirList() {
-			errwriter.Flush()
 			stack.PushBack(dir)
 		}
-
 	}
 	errwriter.Flush()
+	return &fileIdStruct, nil
 }

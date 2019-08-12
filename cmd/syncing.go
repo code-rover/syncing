@@ -25,7 +25,8 @@ func main() {
 		return
 	}
 
-	err := sender.Send("10.81.6.101", "36000", "darren", "/home/darren/syncing/syncing")
+	//err := sender.Send("10.81.6.101", "36000", "darren", "/home/darren/syncing/syncing")
+	err := sender.Send("192.168.1.105", "22", "darren", "/home/darren/syncing/syncing")
 	if err != nil {
 		panic(err)
 	}

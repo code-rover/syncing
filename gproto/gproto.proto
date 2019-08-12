@@ -3,10 +3,11 @@ package gproto;
 
 message file_struct {
     string name = 1;
-    int64 mtime = 2;
-    uint32 mode = 3;
-    int64 size = 4;
-    string hash = 5;
+    int32 fid   = 2;
+    int64 mtime = 3;
+    uint32 mode = 4;
+    int64 size  = 5;
+    string hash = 6;
 }
 
 message dir_struct {
@@ -15,5 +16,10 @@ message dir_struct {
     uint32 mode = 3;
     repeated file_struct fileList = 4;
     repeated dir_struct dirList = 5; 
+}
+
+
+message file_id_struct {
+    repeated int32 idList = 1;
 }
 

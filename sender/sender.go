@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"strconv"
 	"syncing/gproto"
+	"time"
 
 	"github.com/golang/protobuf/proto"
 )
@@ -38,10 +39,11 @@ func Send(ip string, port string, user string, execPath string) error {
 		done <- true
 	}()
 
-	dirInfoBytes, err := ReadDirInfo2()
+	dirInfoBytes, fidMap, err := ReadDirInfo()
 	if err != nil {
 		return errors.New(err.Error())
 	}
+
 	println("data len: " + strconv.Itoa(len(dirInfoBytes)))
 	// bstr := fmt.Sprintf("%X", dd)
 	// println("bstr: " + bstr)
@@ -51,6 +53,8 @@ func Send(ip string, port string, user string, execPath string) error {
 	binary.LittleEndian.PutUint32(lenBuf, uint32(len(dirInfoBytes)))
 
 	bufWriter := bufio.NewWriter(stdin)
+	bufReader := bufio.NewReader(stdout)
+
 	n, err := bufWriter.Write(lenBuf)
 	print("Write n: ")
 	println(n)
@@ -67,12 +71,43 @@ func Send(ip string, port string, user string, execPath string) error {
 	fmt.Printf("write: %d\n", n)
 	bufWriter.Flush()
 
+	time.Sleep(1 * time.Second)
+
+	lenBuf = make([]byte, 4)
+	n, err = io.ReadFull(bufReader, lenBuf)
+	if err != nil {
+		println(n)
+		println("error: " + err.Error())
+		return errors.New(err.Error())
+	}
+	length := binary.LittleEndian.Uint32(lenBuf)
+	dataBuf := make([]byte, length)
+	n, err = io.ReadFull(bufReader, dataBuf)
+	if err != nil {
+		return errors.New(err.Error())
+	}
+
+	var fileIdStruct gproto.FileIdStruct
+	err = proto.Unmarshal(dataBuf, &fileIdStruct)
+	if err != nil {
+		return errors.New(err.Error())
+	}
+
+	println("idlist size: " + strconv.Itoa(len(fileIdStruct.IdList)) + "\n")
+	for _, fid := range fileIdStruct.IdList {
+		println(fidMap[fid])
+	}
+
+	//just for test
+	n, err = bufWriter.Write(lenBuf)
+	bufWriter.Flush()
+
 	<-done
 	fmt.Println("over!")
 	return nil
 }
 
-func ReadDirInfo2() ([]byte, error) {
+func ReadDirInfo() ([]byte, map[int32]string, error) {
 	var rootDir *gproto.DirStruct
 	var stack = list.New()
 
@@ -87,6 +122,8 @@ func ReadDirInfo2() ([]byte, error) {
 			path:      p,
 		}
 	}
+	fid := int32(1)
+	fidMap := make(map[int32]string)
 
 	firstItem := &gproto.DirStruct{
 		Name:  ".",
@@ -103,7 +140,7 @@ func ReadDirInfo2() ([]byte, error) {
 
 		dir, err := ioutil.ReadDir(current.path)
 		if err != nil {
-			return nil, errors.New("ReadDir error: " + err.Error())
+			return nil, nil, errors.New("ReadDir error: " + err.Error())
 		}
 		for _, f := range dir {
 			if f.IsDir() {
@@ -118,14 +155,17 @@ func ReadDirInfo2() ([]byte, error) {
 				stack.PushBack(newNode)
 				current.dirStruct.DirList = append(current.dirStruct.DirList, newNode.dirStruct)
 			} else {
-				current.dirStruct.FileList = append(current.dirStruct.FileList, &gproto.FileStruct{
+				newFileStruct := gproto.FileStruct{
 					Name:  f.Name(),
+					Fid:   fid,
 					Mtime: f.ModTime().Unix(),
 					Mode:  0,
 					Size:  f.Size(),
 					//Hash:  hex.EncodeToString(md5hash.Sum(nil)),
-				})
-
+				}
+				current.dirStruct.FileList = append(current.dirStruct.FileList, &newFileStruct)
+				fidMap[fid] = current.path + f.Name()
+				fid++
 			}
 		}
 	}
@@ -135,8 +175,8 @@ func ReadDirInfo2() ([]byte, error) {
 	data, err := proto.Marshal(rootDir)
 	if err != nil {
 		//panic("Marsha1 error")
-		return nil, errors.New("Marshl error: " + err.Error())
+		return nil, nil, errors.New("Marshl error: " + err.Error())
 	}
 
-	return data, nil
+	return data, fidMap, nil
 }
