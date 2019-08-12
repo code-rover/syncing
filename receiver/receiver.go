@@ -55,8 +55,8 @@ func RunServer() {
 	errwriter.WriteString("msg Unmarshal data success! getname: " + ds.GetName() + "\n")
 	errwriter.Flush()
 
-	pathStack := list.New()
-	cntMap := make(map[*gproto.DirStruct]int)
+	pathStack := list.New()                        //用于计算全路径
+	visitedMap := make(map[*gproto.DirStruct]bool) //记录节点是否访问过
 
 	stack := list.New()
 	stack.PushBack(&ds)
@@ -65,12 +65,9 @@ func RunServer() {
 		ds := stack.Back().Value.(*gproto.DirStruct)
 		stack.Remove(stack.Back())
 
-		if _, ok := cntMap[ds]; !ok {
-			cntMap[ds] = 0
+		if _, ok := visitedMap[ds]; !ok {
+			visitedMap[ds] = true
 		}
-		//if len(ds.DirList) > 0 {
-		cntMap[ds]++
-		//}
 		pathStack.PushBack(ds)
 
 		fileList := ds.GetFileList()
@@ -83,8 +80,8 @@ func RunServer() {
 
 		for _, file := range fileList {
 			filePath := /*basePath + */ fullPath + file.Name
-			errwriter.WriteString("msg file name: " + filePath + "\n")
-			errwriter.Flush()
+			// errwriter.WriteString("msg file name: " + filePath + "\n")
+			// errwriter.Flush()
 
 			fileInfo, err := os.Stat(filePath)
 			if err != nil {
@@ -108,20 +105,20 @@ func RunServer() {
 		if len(ds.GetDirList()) == 0 {
 			for e := pathStack.Back(); e != nil; {
 				item := e.Value.(*gproto.DirStruct)
-				fmt.Fprintf(os.Stderr, "%s   ", fullPath)
+				// fmt.Fprintf(os.Stderr, "%s   ", fullPath)
 
 				childVisited := true
 				for _, child := range item.DirList {
-					if cntMap[child] == 0 {
+					if !visitedMap[child] {
 						childVisited = false
-						fmt.Fprintf(os.Stderr, "\n")
+						// fmt.Fprintf(os.Stderr, "\n")
 						break
 					}
 				}
 
 				if childVisited {
 					preEle := e.Prev()
-					fmt.Fprintf(os.Stderr, "  remove: %s\n", item.Name)
+					// fmt.Fprintf(os.Stderr, "  remove: %s\n", item.Name)
 					pathStack.Remove(e)
 					e = preEle
 				} else {
@@ -129,16 +126,14 @@ func RunServer() {
 				}
 
 				//更新fullPath  just for log
-				fullPath = ""
-				for e := pathStack.Front(); e != nil; e = e.Next() {
-					fullPath += ((e.Value.(*gproto.DirStruct).Name) + "/")
-				}
+				// fullPath = ""
+				// for e := pathStack.Front(); e != nil; e = e.Next() {
+				// 	fullPath += ((e.Value.(*gproto.DirStruct).Name) + "/")
+				// }
 			}
 		}
 
-		//errwriter.WriteString("msg dir size: " + strconv.Itoa(len(ds.GetDirList())) + "\n")
 		for _, dir := range ds.GetDirList() {
-			//errwriter.WriteString("msg dir name: " + dir.Path + dir.Name + "\n")
 			errwriter.Flush()
 			stack.PushBack(dir)
 		}

@@ -93,7 +93,7 @@ func ReadDirInfo2() ([]byte, error) {
 		Mtime: 0,
 		Mode:  0,
 	}
-	stack.PushBack(MakeNode(firstItem, "./dir1/"))
+	stack.PushBack(MakeNode(firstItem, "./"))
 	rootDir = firstItem
 
 	var current *DNode
@@ -131,7 +131,7 @@ func ReadDirInfo2() ([]byte, error) {
 	}
 
 	//printTree(rootDir, 0)
-	rootDir.Name = "/home/darren/syncing/dir1"
+	rootDir.Name = "/home/darren/syncing"
 	data, err := proto.Marshal(rootDir)
 	if err != nil {
 		//panic("Marsha1 error")
@@ -140,75 +140,3 @@ func ReadDirInfo2() ([]byte, error) {
 
 	return data, nil
 }
-
-/*
- *  读取目录文件信息
- */
-/*
-func ReadDirectoryInfo() ([]byte, error) {
-	var rootDir *gproto.DirStruct
-	var stack = list.New()
-
-	topDir := &gproto.DirStruct{
-		Path:  "./",
-		Name:  ".",
-		Mtime: 0,
-		Mode:  0,
-	}
-	stack.PushBack(topDir)
-	rootDir = topDir
-
-	var ds *gproto.DirStruct
-	for stack.Back() != nil {
-		ds = stack.Back().Value.(*gproto.DirStruct)
-		stack.Remove(stack.Back())
-
-		dir, err := ioutil.ReadDir(ds.Path)
-		if err != nil {
-			//panic("ReadDir error")
-			return nil, errors.New("ReadDir error: " + err.Error())
-		}
-		for _, f := range dir {
-			if f.IsDir() {
-				if f.Name() == ".svn" || f.Name() == ".git" || f.Name() == "gproto" {
-					continue
-				}
-				d := &gproto.DirStruct{
-					Path:  ds.Path + f.Name() + "/",
-					Name:  f.Name(),
-					Mtime: 0,
-					Mode:  0,
-				}
-				stack.PushBack(d)
-
-				ds.DirList = append(ds.DirList, d)
-
-			} else {
-				//var fileSuffix string
-				var fileSuffix string = path.Ext(f.Name()) //获取文件后缀
-				if fileSuffix == ".o" || fileSuffix == ".exe" || fileSuffix == ".msi" {
-					continue
-				}
-
-				ds.FileList = append(ds.FileList, &gproto.FileStruct{
-					Name:  f.Name(),
-					Mtime: f.ModTime().Unix(),
-					Mode:  0,
-					Size:  f.Size(),
-					//Hash:  hex.EncodeToString(md5hash.Sum(nil)),
-				})
-			}
-		}
-	}
-
-	//printTree(rootDir, 0)
-
-	data, err := proto.Marshal(rootDir)
-	if err != nil {
-		//panic("Marsha1 error")
-		return nil, errors.New("Marshl error: " + err.Error())
-	}
-
-	return data, nil
-}
-*/
