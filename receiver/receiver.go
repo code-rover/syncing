@@ -1,5 +1,6 @@
 package receiver
 
+//
 import (
 	"bufio"
 	"container/list"
@@ -7,12 +8,17 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"strconv"
 	"syncing/gproto"
 
 	"github.com/golang/protobuf/proto"
 )
+
+var step = 10
+
+var fidPathMap = make(map[int32]string)
 
 func RunServer() {
 	errwriter := bufio.NewWriter(os.Stderr)
@@ -46,14 +52,14 @@ func RunServer() {
 	// errwriter.WriteString("msg recv data bin: " + bstr + "\n")
 	// errwriter.Flush()
 
-	fileIdStruct, err := FileListCheck(dataBuf)
-	errwriter.WriteString("msg fileIdStruct: " + strconv.Itoa(len(fileIdStruct.IdList)) + "\n")
+	fileSumList, err := FileListCheck(dataBuf)
+	errwriter.WriteString("msg fileSumListSize: " + strconv.Itoa(len(fileSumList.List)) + "\n")
 
 	if err != nil {
 		errwriter.WriteString("msg err FileListCheck: " + err.Error())
 		return
 	}
-	fidBytes, err := proto.Marshal(fileIdStruct)
+	fidBytes, err := proto.Marshal(fileSumList)
 	if err != nil {
 		errwriter.WriteString("msg err Marshal: " + err.Error())
 		return
@@ -72,15 +78,40 @@ func RunServer() {
 		return
 	}
 	errwriter.WriteString("msg bidBytes len: " + strconv.Itoa(n) + "\n")
-	errwriter.Flush()
 	writer.Flush()
+
+	for {
+		lenBuf = make([]byte, 4)
+		io.ReadFull(reader, lenBuf)
+		length = binary.LittleEndian.Uint32(lenBuf)
+		errwriter.WriteString("msg recv22 len: " + strconv.Itoa(int(length)) + "\n")
+		errwriter.Flush()
+
+		dataBuf = make([]byte, length)
+		n, err = io.ReadFull(reader, dataBuf)
+		if err != nil {
+			errwriter.WriteString("msg recv22 err " + err.Error())
+			return
+		}
+		errwriter.WriteString("msg recv33 len: " + strconv.Itoa(n) + "\n")
+		errwriter.Flush()
+
+		var patchList gproto.PatchList
+		err := proto.Unmarshal(dataBuf, &patchList)
+		if err != nil {
+			errwriter.WriteString("msg err33 " + err.Error())
+			errwriter.Flush()
+			return
+		}
+		RebuildFile(&patchList)
+	}
 
 	//just waiting for sender msg
 	lenBuf = make([]byte, 4)
 	io.ReadFull(reader, lenBuf)
 }
 
-func FileListCheck(dataBuf []byte) (*gproto.FileIdStruct, error) {
+func FileListCheck(dataBuf []byte) (*gproto.FileSumList, error) {
 	errwriter := bufio.NewWriter(os.Stderr)
 
 	var ds gproto.DirStruct
@@ -92,7 +123,8 @@ func FileListCheck(dataBuf []byte) (*gproto.FileIdStruct, error) {
 	}
 	errwriter.WriteString("msg Unmarshal data success! getname: " + ds.GetName() + "\n")
 
-	var fileIdStruct gproto.FileIdStruct
+	//var fileIdStruct gproto.FileIdStruct
+	var fileSumList gproto.FileSumList
 
 	pathStack := list.New()                        //用于计算全路径
 	visitedMap := make(map[*gproto.DirStruct]bool) //记录节点是否访问过
@@ -126,7 +158,9 @@ func FileListCheck(dataBuf []byte) (*gproto.FileIdStruct, error) {
 			if err != nil {
 				if os.IsNotExist(err) {
 					errwriter.WriteString("msg missing " + filePath + "\n")
-					fileIdStruct.IdList = append(fileIdStruct.IdList, file.GetFid())
+					fileSumList.List = append(fileSumList.List, &gproto.SumList{
+						Fid: file.GetFid(),
+					})
 					continue
 				}
 				errwriter.WriteString("msg err " + err.Error() + "\n")
@@ -135,7 +169,28 @@ func FileListCheck(dataBuf []byte) (*gproto.FileIdStruct, error) {
 
 			if file.Mtime != fileInfo.ModTime().Unix() || file.Size != fileInfo.Size() {
 				errwriter.WriteString("msg diff " + filePath + "\n")
-				fileIdStruct.IdList = append(fileIdStruct.IdList, file.GetFid())
+				//fileIdStruct.IdList = append(fileIdStruct.IdList, file.GetFid())
+				fileData, err := ioutil.ReadFile(filePath)
+				if err != nil {
+					errwriter.WriteString("msg err " + err.Error() + "\n")
+					continue
+				}
+				//errwriter.WriteString("msg filelen: " + strconv.Itoa(len(fileData)) + "\n")
+				sumList := MakeSumList(fileData)
+				sumList.Fid = file.GetFid()
+				fidPathMap[sumList.Fid] = filePath
+				fmt.Fprintf(os.Stderr, "msg sumList %s  %d\n", filePath, len(sumList.List))
+
+				// for i := 0; i < len(sumList.List); i++ {
+				// 	//errwriter.WriteString("msg sumList item: " + strconv.Itoa(int(sumList.List[i].Sum1)) + "\n")
+				// 	for j := 0; j < len(sumList.List[i].Sum2List); j++ {
+				// 		//errwriter.WriteString("msg sumList sum: " + sumList.List[i].Sum2List[j].Sum + "\n")
+				// 	}
+				// 	//errwriter.WriteString("\n")
+				// }
+
+				fileSumList.List = append(fileSumList.List, sumList)
+				//errwriter.WriteString("msg sumListLen3: " + strconv.Itoa(len(fileSumList.List)) + "\n")
 			}
 		}
 
@@ -175,5 +230,5 @@ func FileListCheck(dataBuf []byte) (*gproto.FileIdStruct, error) {
 		}
 	}
 	errwriter.Flush()
-	return &fileIdStruct, nil
+	return &fileSumList, nil
 }

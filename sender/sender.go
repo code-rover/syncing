@@ -1,5 +1,6 @@
 package sender
 
+//123
 import (
 	"bufio"
 	"container/list"
@@ -12,10 +13,11 @@ import (
 	"os/exec"
 	"strconv"
 	"syncing/gproto"
-	"time"
 
 	"github.com/golang/protobuf/proto"
 )
+
+var step = 10
 
 func Send(ip string, port string, user string, execPath string) error {
 
@@ -43,7 +45,7 @@ func Send(ip string, port string, user string, execPath string) error {
 	if err != nil {
 		return errors.New(err.Error())
 	}
-
+	_ = fidMap
 	println("data len: " + strconv.Itoa(len(dirInfoBytes)))
 	// bstr := fmt.Sprintf("%X", dd)
 	// println("bstr: " + bstr)
@@ -71,7 +73,7 @@ func Send(ip string, port string, user string, execPath string) error {
 	fmt.Printf("write: %d\n", n)
 	bufWriter.Flush()
 
-	time.Sleep(1 * time.Second)
+	//time.Sleep(1 * time.Second)
 
 	lenBuf = make([]byte, 4)
 	n, err = io.ReadFull(bufReader, lenBuf)
@@ -87,15 +89,51 @@ func Send(ip string, port string, user string, execPath string) error {
 		return errors.New(err.Error())
 	}
 
-	var fileIdStruct gproto.FileIdStruct
-	err = proto.Unmarshal(dataBuf, &fileIdStruct)
+	var fileSumList gproto.FileSumList
+	err = proto.Unmarshal(dataBuf, &fileSumList)
 	if err != nil {
 		return errors.New(err.Error())
 	}
 
-	println("idlist size: " + strconv.Itoa(len(fileIdStruct.IdList)) + "\n")
-	for _, fid := range fileIdStruct.IdList {
-		println(fidMap[fid])
+	println("idlist size: " + strconv.Itoa(len(fileSumList.List)) + "\n")
+	for _, sumList := range fileSumList.List {
+		fmt.Printf(">%d: %s\n", sumList.Fid, fidMap[sumList.Fid])
+		fdata, err := ioutil.ReadFile(fidMap[sumList.Fid])
+		if err != nil {
+			return errors.New(err.Error())
+		}
+		fmt.Printf("Readfile %s  size: %d\n", fidMap[sumList.Fid], len(fdata))
+		patchList := MakePatch(fdata, sumList)
+		patchList.Fid = sumList.Fid
+		fmt.Printf(">patch size: %d\n", len(patchList.List))
+
+		patchListBytes, err := proto.Marshal(patchList)
+		if err != nil {
+			return errors.New("Mershal error " + err.Error())
+		}
+		fmt.Printf(">patch after Marsha1size:%s   %d\n", fidMap[sumList.Fid], len(patchListBytes))
+
+		lenBuf = make([]byte, 4)
+		binary.LittleEndian.PutUint32(lenBuf, uint32(len(patchListBytes)))
+		n, err = bufWriter.Write(lenBuf)
+		if err != nil {
+			panic(err.Error())
+			return errors.New(err.Error())
+		}
+
+		n, err = bufWriter.Write(patchListBytes)
+		if err != nil {
+			panic(err.Error())
+			return errors.New(err.Error())
+		}
+		// for _, patch := range patchList {
+		// 	fmt.Printf(">patch: %s\n", string(patch.Data))
+		// }
+
+		// for _, sumInfo := range sumList.List {
+		// 	fmt.Printf(">sum1: %d\n", sumInfo.Sum1)
+
+		// }
 	}
 
 	//just for test

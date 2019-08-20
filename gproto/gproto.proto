@@ -19,7 +19,32 @@ message dir_struct {
 }
 
 
-message file_id_struct {
-    repeated int32 idList = 1;
+message SumPos {
+	string sum = 1;
+	int32 pos = 2;
 }
 
+message SumInfo {
+    uint32 sum1 = 1;
+    repeated SumPos sum2List = 2;
+}
+
+message SumList {
+    int32 fid = 1;    //文件id
+    repeated SumInfo list = 2;
+}
+
+message FileSumList {
+    repeated SumList list = 1;
+}
+
+message Patch {
+    bytes data = 1;
+    int32 pos = 2;
+    int32 len = 3; 
+}
+
+message PatchList {
+    int32 fid = 1;
+    repeated Patch list = 2;
+}
