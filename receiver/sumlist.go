@@ -49,10 +49,9 @@ func Alder32Sum(data []byte) uint32 {
 	return uint32(b<<16 | a&0xffff)
 }
 
-var h = md5.New()
-
 func md5sum(input []byte) string {
-	h.Reset()
+	var h = md5.New()
+	//h.Reset()
 	h.Write(input)
 	//return *(*string)(unsafe.Pointer(&h))
 	return hex.EncodeToString(h.Sum(nil))

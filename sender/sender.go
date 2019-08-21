@@ -30,7 +30,6 @@ func Send(ip string, port string, user string, execPath string, rpath string) er
 
 	done := make(chan bool)
 	go func() {
-		//cmd = exec.Command("ssh", "-p36000", "p_guangdfan@10.85.4.218", "/data/home/p_guangdfan/mydata/gosync/gsync --server")
 		cmd = exec.Command("ssh", "-p"+port, user+"@"+ip, execPath+" --server")
 		stdout, _ = cmd.StdoutPipe()
 		stdin, _ = cmd.StdinPipe()
@@ -87,7 +86,7 @@ func ProcessMsg(conn *comm.Connection) error {
 			fileSumList := st.(*gproto.FileSumList)
 
 			for _, sumList := range fileSumList.List {
-				// fmt.Printf(">%d: %s\n", sumList.Fid, fidMap[sumList.Fid])
+				// fmt.Printf(">%d  %d: %s\n", i, sumList.Fid, fidMap[sumList.Fid])
 				fdata, err := ioutil.ReadFile(fidMap[sumList.Fid])
 				if err != nil {
 					fmt.Printf("ReadFile error: %s\n", err.Error())

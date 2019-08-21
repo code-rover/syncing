@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"sync"
 	"syncing/comm"
 	"syncing/gproto"
 
@@ -40,6 +41,8 @@ func RunServer() {
 }
 
 func ProcessMsg(conn *comm.Connection) {
+	var waitGroup = sync.WaitGroup{}
+	i := 0
 	for {
 		cmd, st, err := conn.Recv()
 		if err != nil {
@@ -69,7 +72,9 @@ func ProcessMsg(conn *comm.Connection) {
 
 		} else if cmd == gproto.MSG_A_PATCHLIST {
 			patchList := st.(*gproto.PatchList)
-			RebuildFile(patchList)
+			waitGroup.Add(1)
+			i++
+			go RebuildFile(i, patchList, &waitGroup)
 
 		} else if cmd == gproto.MSG_A_END {
 			fmt.Fprintf(os.Stderr, "msg recv end\n")
@@ -79,6 +84,7 @@ func ProcessMsg(conn *comm.Connection) {
 			break
 		}
 	}
+	waitGroup.Wait()
 }
 
 func FileListCheck(ds *gproto.DirStruct) (*gproto.FileSumList, error) {
@@ -116,7 +122,7 @@ func FileListCheck(ds *gproto.DirStruct) (*gproto.FileSumList, error) {
 			fileInfo, err := os.Stat(path)
 			if err != nil {
 				if os.IsNotExist(err) {
-					errwriter.WriteString("msg missing " + path + "\n")
+					// errwriter.WriteString("msg missing " + path + "\n")
 					fidMtimeMap[file.Fid] = file.Mtime
 					err := os.MkdirAll(filepath.Dir(path), os.ModePerm)
 					if err != nil {
@@ -132,9 +138,6 @@ func FileListCheck(ds *gproto.DirStruct) (*gproto.FileSumList, error) {
 					fileInfo, err = f.Stat()
 					f.Close()
 
-					fileSumList.List = append(fileSumList.List, &gproto.SumList{
-						Fid: file.GetFid(),
-					})
 				} else {
 					errwriter.WriteString("msg err " + err.Error() + "\n")
 					continue
@@ -142,7 +145,7 @@ func FileListCheck(ds *gproto.DirStruct) (*gproto.FileSumList, error) {
 			}
 
 			if file.Mtime != fileInfo.ModTime().Unix() || file.Size != fileInfo.Size() {
-				errwriter.WriteString("msg diff " + path + "\n")
+				// errwriter.WriteString("msg diff " + path + "\n")
 				fidMtimeMap[file.Fid] = file.Mtime
 				fileData, err := ioutil.ReadFile(path)
 				if err != nil {
@@ -152,7 +155,7 @@ func FileListCheck(ds *gproto.DirStruct) (*gproto.FileSumList, error) {
 				sumList := MakeSumList(fileData)
 				sumList.Fid = file.GetFid()
 				fidPathMap[sumList.Fid] = path
-				fmt.Fprintf(os.Stderr, "msg sumList %s  %d\n", path, len(sumList.List))
+				// fmt.Fprintf(os.Stderr, "msg sumList %s  %d\n", path, len(sumList.List))
 
 				fileSumList.List = append(fileSumList.List, sumList)
 			}

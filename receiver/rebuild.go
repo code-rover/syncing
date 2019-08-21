@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"sync"
 	"syncing/gproto"
 	"time"
 )
 
-func RebuildFile(patchList *gproto.PatchList) error {
+func RebuildFile(i int, patchList *gproto.PatchList, waitGroup *sync.WaitGroup) error {
+	defer waitGroup.Done()
 	path := fidPathMap[patchList.Fid]
 
 	if path == "" {
@@ -61,7 +63,7 @@ func RebuildFile(patchList *gproto.PatchList) error {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Chtimes err: %s\n", err.Error())
 	}
-
-	fmt.Fprintf(os.Stderr, "write file %s   %d  %s\n", path, size, newHash)
+	_ = i
+	//fmt.Fprintf(os.Stderr, "write file %d fid:%d   %s   %d  %s\n", i, patchList.Fid, path, size, newHash)
 	return nil
 }
