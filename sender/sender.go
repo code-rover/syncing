@@ -1,10 +1,8 @@
 package sender
 
-//123
 import (
 	"bufio"
 	"container/list"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -12,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"syncing/comm"
 	"syncing/gproto"
 
 	"github.com/golang/protobuf/proto"
@@ -19,7 +18,11 @@ import (
 
 var step = 10
 
-func Send(ip string, port string, user string, execPath string) error {
+var conn *comm.Connection
+var fidMap map[int32]string
+var remoteBasePath string
+
+func Send(ip string, port string, user string, execPath string, rpath string) error {
 
 	var cmd *exec.Cmd
 	var stdout io.Reader
@@ -41,108 +44,79 @@ func Send(ip string, port string, user string, execPath string) error {
 		done <- true
 	}()
 
-	dirInfoBytes, fidMap, err := ReadDirInfo()
+	remoteBasePath = rpath
+	var dirInfoBytes []byte
+	var err error
+	dirInfoBytes, fidMap, err = ReadDirInfo()
 	if err != nil {
 		return errors.New(err.Error())
 	}
-	_ = fidMap
+
 	println("data len: " + strconv.Itoa(len(dirInfoBytes)))
 	// bstr := fmt.Sprintf("%X", dd)
 	// println("bstr: " + bstr)
 	// fmt.Println(len(bstr))
 
-	lenBuf := make([]byte, 4)
-	binary.LittleEndian.PutUint32(lenBuf, uint32(len(dirInfoBytes)))
-
 	bufWriter := bufio.NewWriter(stdin)
 	bufReader := bufio.NewReader(stdout)
+	conn = comm.NewConn(bufReader, bufWriter)
 
-	n, err := bufWriter.Write(lenBuf)
-	print("Write n: ")
-	println(n)
+	n, err := conn.Send(gproto.MSG_A_DIR_INFO, dirInfoBytes)
 	if err != nil {
-		println("Write error")
-		return errors.New(err.Error())
+		panic(err.Error())
 	}
-
-	n, err = bufWriter.Write(dirInfoBytes)
-	if err != nil {
-		return errors.New(err.Error())
-	}
-
 	fmt.Printf("write: %d\n", n)
 	bufWriter.Flush()
 
-	//time.Sleep(1 * time.Second)
-
-	lenBuf = make([]byte, 4)
-	n, err = io.ReadFull(bufReader, lenBuf)
-	if err != nil {
-		println(n)
-		println("error: " + err.Error())
-		return errors.New(err.Error())
-	}
-	length := binary.LittleEndian.Uint32(lenBuf)
-	dataBuf := make([]byte, length)
-	n, err = io.ReadFull(bufReader, dataBuf)
-	if err != nil {
-		return errors.New(err.Error())
-	}
-
-	var fileSumList gproto.FileSumList
-	err = proto.Unmarshal(dataBuf, &fileSumList)
-	if err != nil {
-		return errors.New(err.Error())
-	}
-
-	println("idlist size: " + strconv.Itoa(len(fileSumList.List)) + "\n")
-	for _, sumList := range fileSumList.List {
-		fmt.Printf(">%d: %s\n", sumList.Fid, fidMap[sumList.Fid])
-		fdata, err := ioutil.ReadFile(fidMap[sumList.Fid])
-		if err != nil {
-			return errors.New(err.Error())
-		}
-		fmt.Printf("Readfile %s  size: %d\n", fidMap[sumList.Fid], len(fdata))
-		patchList := MakePatch(fdata, sumList)
-		patchList.Fid = sumList.Fid
-		fmt.Printf(">patch size: %d\n", len(patchList.List))
-
-		patchListBytes, err := proto.Marshal(patchList)
-		if err != nil {
-			return errors.New("Mershal error " + err.Error())
-		}
-		fmt.Printf(">patch after Marsha1size:%s   %d\n", fidMap[sumList.Fid], len(patchListBytes))
-
-		lenBuf = make([]byte, 4)
-		binary.LittleEndian.PutUint32(lenBuf, uint32(len(patchListBytes)))
-		n, err = bufWriter.Write(lenBuf)
-		if err != nil {
-			panic(err.Error())
-			return errors.New(err.Error())
-		}
-
-		n, err = bufWriter.Write(patchListBytes)
-		if err != nil {
-			panic(err.Error())
-			return errors.New(err.Error())
-		}
-		// for _, patch := range patchList {
-		// 	fmt.Printf(">patch: %s\n", string(patch.Data))
-		// }
-
-		// for _, sumInfo := range sumList.List {
-		// 	fmt.Printf(">sum1: %d\n", sumInfo.Sum1)
-
-		// }
-	}
-
-	//just for test
-	n, err = bufWriter.Write(lenBuf)
-	bufWriter.Flush()
+	ProcessMsg(conn)
 
 	<-done
 	fmt.Println("over!")
 	return nil
+}
+
+func ProcessMsg(conn *comm.Connection) error {
+	for {
+		cmd, st, err := conn.Recv()
+		if err != nil {
+			fmt.Printf("Recv error: %s\n", err.Error())
+			return err
+		}
+
+		if cmd == gproto.MSG_B_SUMLIST {
+			fileSumList := st.(*gproto.FileSumList)
+
+			for _, sumList := range fileSumList.List {
+				// fmt.Printf(">%d: %s\n", sumList.Fid, fidMap[sumList.Fid])
+				fdata, err := ioutil.ReadFile(fidMap[sumList.Fid])
+				if err != nil {
+					fmt.Printf("ReadFile error: %s\n", err.Error())
+					return err
+				}
+				// fmt.Printf("Readfile %s  size: %d\n", fidMap[sumList.Fid], len(fdata))
+				patchList := MakePatch(fdata, sumList)
+				patchList.Fid = sumList.Fid
+				// fmt.Printf(">patch size: %d\n", len(patchList.List))
+
+				patchListBytes, err := proto.Marshal(patchList)
+				if err != nil {
+					fmt.Printf("Marshal error: %s\n", err.Error())
+					return err
+				}
+				//fmt.Printf(">patch after Marsha1size:%s   %d\n", fidMap[sumList.Fid], len(patchListBytes))
+
+				_, err = conn.Send(gproto.MSG_A_PATCHLIST, patchListBytes)
+				if err != nil {
+					return err
+				}
+			}
+			conn.Send(gproto.MSG_A_END, []byte{})
+
+		} else if cmd == gproto.MSG_B_END {
+			// fmt.Println("recv MSG_B_END")
+			return nil
+		}
+	}
 }
 
 func ReadDirInfo() ([]byte, map[int32]string, error) {
@@ -160,7 +134,7 @@ func ReadDirInfo() ([]byte, map[int32]string, error) {
 			path:      p,
 		}
 	}
-	fid := int32(1)
+	fid := int32(1) //分配标识id
 	fidMap := make(map[int32]string)
 
 	firstItem := &gproto.DirStruct{
@@ -209,7 +183,7 @@ func ReadDirInfo() ([]byte, map[int32]string, error) {
 	}
 
 	//printTree(rootDir, 0)
-	rootDir.Name = "/home/darren/syncing"
+	rootDir.Name = remoteBasePath //"/home/darren/syncing"
 	data, err := proto.Marshal(rootDir)
 	if err != nil {
 		//panic("Marsha1 error")

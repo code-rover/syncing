@@ -2,19 +2,20 @@ package receiver
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"syncing/gproto"
+	"time"
 )
 
-//
 func RebuildFile(patchList *gproto.PatchList) error {
 	path := fidPathMap[patchList.Fid]
 
 	if path == "" {
-		path = "./newfile"
+		return errors.New("not found file in map")
 	}
 
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0666)
@@ -31,20 +32,36 @@ func RebuildFile(patchList *gproto.PatchList) error {
 		fmt.Fprintf(os.Stderr, "msg error "+err.Error())
 		return errors.New(err.Error())
 	}
-	//var buf bytes.Buffer
+
+	var size int64
+	buf := bytes.Buffer{}
 	for _, patch := range patchList.List {
 		if patch.Pos == -1 {
-			//buf.Write(patch.Data)
 			wbuf.Write(patch.Data)
-			// println("data: " + string(patch.data))
+			buf.Write(patch.Data)
+			size += int64(len(patch.Data))
 		} else {
-			// println("patch: " + string(origin[patch.pos:patch.pos+patch.len]))
-			//buf.Write(fdata[patch.Pos : patch.Pos+patch.Len])
 			wbuf.Write(fdata[patch.Pos : patch.Pos+patch.Len])
+			buf.Write(fdata[patch.Pos : patch.Pos+patch.Len])
+			//fmt.Fprintf(os.Stderr, "msg patch.Data: %s\n", fdata[patch.Pos:patch.Pos+patch.Len])
+			size += int64((patch.Pos + patch.Len - patch.Pos))
 		}
 	}
 	wbuf.Flush()
+	newHash := md5sum(buf.Bytes())
+	if newHash != patchList.Hash {
+		fmt.Fprintf(os.Stderr, "md5sum error: %s   %s\n", patchList.Hash, newHash)
+	}
 
-	//ioutil.WriteFile(path+"_new", buf.Bytes(), 0666)
+	f.Truncate(int64(size)) //去掉多余数据
+
+	mtime := fidMtimeMap[patchList.Fid]
+	tm := time.Unix(mtime, 0)
+	err = os.Chtimes(path, tm, tm)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Chtimes err: %s\n", err.Error())
+	}
+
+	fmt.Fprintf(os.Stderr, "write file %s   %d  %s\n", path, size, newHash)
 	return nil
 }

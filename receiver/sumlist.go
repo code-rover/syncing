@@ -19,7 +19,6 @@ func MakeSumList(data []byte) *gproto.SumList {
 		sum2 := md5sum(data[i : i+step])
 
 		//fmt.Fprintf(os.Stderr, "msg sum1: %d   %s\n", sum1, data[i:i+step])
-
 		if _, ok := sumMap[sum1]; !ok {
 			sumMap[sum1] = &gproto.SumInfo{
 				Sum1:     sum1,
@@ -57,6 +56,5 @@ func md5sum(input []byte) string {
 	h.Write(input)
 	//return *(*string)(unsafe.Pointer(&h))
 	return hex.EncodeToString(h.Sum(nil))
-	//return md5Str
 	//return string(h.Sum(nil))
 }

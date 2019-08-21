@@ -4,20 +4,21 @@ import (
 	"bytes"
 	"crypto/md5"
 	"encoding/hex"
-	"fmt"
 	"syncing/gproto"
 )
 
 func MakePatch(f2 []byte, sumList *gproto.SumList) *gproto.PatchList {
 	blockMap := make(map[uint32][]*gproto.SumPos, len(sumList.List))
+
 	for i := 0; i < len(sumList.List); i++ {
 		blockMap[sumList.List[i].Sum1] = sumList.List[i].Sum2List
 	}
-	fmt.Printf("sum1 size: %d\n", len(sumList.List))
+	// fmt.Printf("sum1 size: %d\n", len(sumList.List))
 
 	dataLen := len(f2)
 
 	var patchList gproto.PatchList
+	patchList.Hash = md5sum(f2) //最终校验用
 	var backItem *gproto.Patch
 
 	var bufA = -1 //差异开始段位置
