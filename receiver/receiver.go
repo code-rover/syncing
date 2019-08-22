@@ -123,7 +123,6 @@ func FileListCheck(ds *gproto.DirStruct) (*gproto.FileSumList, error) {
 
 		for _, file := range fileList {
 			path := basePath + fullPath + file.Name
-			fmt.Fprintf(os.Stderr, "msg pasePath: %s\n", path)
 
 			fileInfo, err := os.Stat(path)
 			if err != nil {
@@ -143,7 +142,6 @@ func FileListCheck(ds *gproto.DirStruct) (*gproto.FileSumList, error) {
 						continue
 					}
 					f.Close()
-					//fileInfo, err = f.Stat()
 
 					var sumList gproto.SumList
 					sumList.Fid = file.Fid

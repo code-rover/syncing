@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"os"
 	"os/exec"
+	"sync"
 	"syncing/comm"
 	"syncing/gproto"
 
@@ -23,7 +24,9 @@ var (
 	remoteBasePath string
 )
 
-func Start(ip string, port string, user string, execPath string, rpath string) error {
+func Start(ip string, port string, user string, execPath string, lpath string, rpath string, myStep int) error {
+	step = myStep
+	localBasePath = lpath
 	remoteBasePath = rpath
 	var stdout io.Reader
 	var stdin io.Writer
@@ -49,6 +52,9 @@ func Start(ip string, port string, user string, execPath string, rpath string) e
 	param := gproto.InitParam{}
 	param.BasePath = remoteBasePath
 	param.Step = int32(step)
+
+	fmt.Printf("localBasePath: %s\n", localBasePath)
+	fmt.Printf("remoteBasePath: %s\n", remoteBasePath)
 
 	paramData, err := proto.Marshal(&param)
 	if err != nil {
@@ -83,6 +89,10 @@ func Start(ip string, port string, user string, execPath string, rpath string) e
 }
 
 func ProcessMsg(conn *comm.Connection) error {
+	var waitGroup sync.WaitGroup = sync.WaitGroup{}
+	var mutex sync.Mutex = sync.Mutex{}
+	goLimit := make(chan int, 100)
+
 	for {
 		cmd, st, err := conn.Recv()
 		if err != nil {
@@ -95,28 +105,42 @@ func ProcessMsg(conn *comm.Connection) error {
 
 			for _, sumList := range fileSumList.List {
 				// fmt.Printf(">%d  %d: %s\n", i, sumList.Fid, fidMap[sumList.Fid])
-				fdata, err := ioutil.ReadFile(fidPathMap[sumList.Fid])
-				if err != nil {
-					fmt.Printf("ReadFile error: %s\n", err.Error())
-					return err
-				}
-				// fmt.Printf("Readfile %s  size: %d\n", fidMap[sumList.Fid], len(fdata))
-				patchList := MakePatch(fdata, sumList)
-				patchList.Fid = sumList.Fid
-				// fmt.Printf(">patch size: %d\n", len(patchList.List))
 
-				patchListBytes, err := proto.Marshal(patchList)
-				if err != nil {
-					fmt.Printf("Marshal error: %s\n", err.Error())
-					return err
-				}
-				//fmt.Printf(">patch after Marsha1size:%s   %d\n", fidMap[sumList.Fid], len(patchListBytes))
+				waitGroup.Add(1)
+				goLimit <- 1
+				go func(path string, sumList *gproto.SumList) {
+					defer waitGroup.Done()
+					fdata, err := ioutil.ReadFile(path)
+					if err != nil {
+						fmt.Printf("ReadFile error: %s\n", err.Error())
+						// return err
+					}
+					// fmt.Printf("Readfile %s  size: %d\n", fidMap[sumList.Fid], len(fdata))
+					patchList := MakePatch(fdata, sumList)
+					patchList.Fid = sumList.Fid
+					// fmt.Printf(">patch size: %d\n", len(patchList.List))
 
-				_, err = conn.Send(gproto.MSG_A_PATCHLIST, patchListBytes)
-				if err != nil {
-					return err
-				}
+					patchListBytes, err := proto.Marshal(patchList)
+					if err != nil {
+						fmt.Printf("Marshal error patchList: %s\n", err.Error())
+						// return err
+					}
+					//fmt.Printf(">patch after Marsha1size:%s   %d\n", fidMap[sumList.Fid], len(patchListBytes))
+
+					mutex.Lock()
+					defer mutex.Unlock()
+					_, err = conn.Send(gproto.MSG_A_PATCHLIST, patchListBytes)
+					if err != nil {
+						fmt.Printf("send error MSG_A_PATCHLIST: %s\n", err.Error())
+						// return err
+					}
+
+					<-goLimit
+
+				}(fidPathMap[sumList.Fid], sumList)
 			}
+
+			waitGroup.Wait()
 			conn.Send(gproto.MSG_A_END, []byte{})
 
 		} else if cmd == gproto.MSG_B_END {
@@ -148,7 +172,7 @@ func ReadDirInfo() ([]byte, error) {
 		Mtime: 0,
 		Mode:  0,
 	}
-	stack.PushBack(MakeNode(firstItem, "./"))
+	stack.PushBack(MakeNode(firstItem, localBasePath))
 	rootDir = firstItem
 
 	var current *DNode

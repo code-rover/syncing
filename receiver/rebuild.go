@@ -64,6 +64,6 @@ func RebuildFile(i int, patchList *gproto.PatchList, waitGroup *sync.WaitGroup) 
 		fmt.Fprintf(os.Stderr, "Chtimes err: %s\n", err.Error())
 	}
 	//_ = i
-	fmt.Fprintf(os.Stderr, "rebuild file %d fid:%d   %s   %d  %s\n", i, patchList.Fid, path, size, newHash)
+	fmt.Fprintf(os.Stderr, "rebuild file %d fid:%d  patchSize:%d  %s   %d  %s\n", i, patchList.Fid, len(patchList.List), path, size, newHash)
 	return nil
 }

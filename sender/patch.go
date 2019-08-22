@@ -8,6 +8,17 @@ import (
 )
 
 func MakePatch(f2 []byte, sumList *gproto.SumList) *gproto.PatchList {
+	var patchList gproto.PatchList
+	patchList.Hash = md5sum(f2) //最终校验用
+
+	if len(sumList.List) == 0 { //无端为空文件
+		var patch gproto.Patch
+		patch.Pos = -1
+		patch.Data = f2
+		patchList.List = []*gproto.Patch{&patch}
+		return &patchList
+	}
+
 	blockMap := make(map[uint32][]*gproto.SumPos, len(sumList.List))
 
 	for i := 0; i < len(sumList.List); i++ {
@@ -17,8 +28,6 @@ func MakePatch(f2 []byte, sumList *gproto.SumList) *gproto.PatchList {
 
 	dataLen := len(f2)
 
-	var patchList gproto.PatchList
-	patchList.Hash = md5sum(f2) //最终校验用
 	var backItem *gproto.Patch
 
 	var bufA = -1 //差异开始段位置
@@ -142,10 +151,8 @@ func Alder32SumBasedOnPrev(data []byte, curPos int, prev uint32) uint32 {
 	return prevB<<16 | prevA&0xffff
 }
 
-var h = md5.New()
-
 func md5sum(input []byte) string {
-	h.Reset()
+	var h = md5.New()
 	h.Write(input)
 	//return *(*string)(unsafe.Pointer(&h))
 	return hex.EncodeToString(h.Sum(nil))
