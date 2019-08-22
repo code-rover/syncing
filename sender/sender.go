@@ -22,6 +22,7 @@ var (
 	fidPathMap     = make(map[int32]string)
 	localBasePath  string
 	remoteBasePath string
+	goMaxNum       = 100
 )
 
 func Start(ip string, port string, user string, execPath string, lpath string, rpath string, myStep int) error {
@@ -91,7 +92,7 @@ func Start(ip string, port string, user string, execPath string, lpath string, r
 func ProcessMsg(conn *comm.Connection) error {
 	var waitGroup sync.WaitGroup = sync.WaitGroup{}
 	var mutex sync.Mutex = sync.Mutex{}
-	goLimit := make(chan int, 100)
+	goLimit := make(chan bool, goMaxNum)
 
 	for {
 		cmd, st, err := conn.Recv()
@@ -107,9 +108,11 @@ func ProcessMsg(conn *comm.Connection) error {
 				// fmt.Printf(">%d  %d: %s\n", i, sumList.Fid, fidMap[sumList.Fid])
 
 				waitGroup.Add(1)
-				goLimit <- 1
+				goLimit <- true
+
 				go func(path string, sumList *gproto.SumList) {
 					defer waitGroup.Done()
+					<-goLimit
 					fdata, err := ioutil.ReadFile(path)
 					if err != nil {
 						fmt.Printf("ReadFile error: %s\n", err.Error())
@@ -134,8 +137,6 @@ func ProcessMsg(conn *comm.Connection) error {
 						fmt.Printf("send error MSG_A_PATCHLIST: %s\n", err.Error())
 						// return err
 					}
-
-					<-goLimit
 
 				}(fidPathMap[sumList.Fid], sumList)
 			}

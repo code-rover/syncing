@@ -3,13 +3,18 @@ package receiver
 //
 import (
 	"bufio"
+	"bytes"
 	"container/list"
+	"errors"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syncing/comm"
 	"syncing/gproto"
+	"time"
 
 	"github.com/golang/protobuf/proto"
 )
@@ -20,6 +25,7 @@ var (
 	fidMtimeMap = make(map[int32]int64)
 	conn        *comm.Connection
 	basePath    string
+	goMaxNum    = 100
 )
 
 func RunServer() {
@@ -38,9 +44,10 @@ func RunServer() {
 	conn.Send(gproto.MSG_B_END, []byte{})
 }
 
+var rebuildWaitGroup = sync.WaitGroup{}
+var rebuildGoLimit = make(chan bool, goMaxNum)
+
 func ProcessMsg(conn *comm.Connection) {
-	var waitGroup = sync.WaitGroup{}
-	i := 0
 	for {
 		cmd, st, err := conn.Recv()
 		if err != nil {
@@ -74,9 +81,9 @@ func ProcessMsg(conn *comm.Connection) {
 
 		} else if cmd == gproto.MSG_A_PATCHLIST {
 			patchList := st.(*gproto.PatchList)
-			waitGroup.Add(1)
-			i++
-			go RebuildFile(i, patchList, &waitGroup)
+			rebuildWaitGroup.Add(1)
+			rebuildGoLimit <- true
+			go RebuildFile(patchList)
 
 		} else if cmd == gproto.MSG_A_END {
 			fmt.Fprintf(os.Stderr, "msg recv end\n")
@@ -86,7 +93,64 @@ func ProcessMsg(conn *comm.Connection) {
 			break
 		}
 	}
-	waitGroup.Wait()
+	rebuildWaitGroup.Wait()
+}
+
+func RebuildFile(patchList *gproto.PatchList) error {
+	defer rebuildWaitGroup.Done()
+	<-rebuildGoLimit
+
+	path := fidPathMap[patchList.Fid]
+
+	if path == "" {
+		return errors.New("not found file in map")
+	}
+
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0666)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, err.Error())
+		return errors.New(err.Error())
+	}
+	defer f.Close()
+
+	wbuf := bufio.NewWriter(f)
+
+	fdata, err := ioutil.ReadFile(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "msg error "+err.Error())
+		return errors.New(err.Error())
+	}
+
+	var size int64
+	buf := bytes.Buffer{}
+	for _, patch := range patchList.List {
+		if patch.Pos == -1 {
+			wbuf.Write(patch.Data)
+			buf.Write(patch.Data)
+			size += int64(len(patch.Data))
+		} else {
+			wbuf.Write(fdata[patch.Pos : patch.Pos+patch.Len])
+			buf.Write(fdata[patch.Pos : patch.Pos+patch.Len])
+			//fmt.Fprintf(os.Stderr, "msg patch.Data: %s\n", fdata[patch.Pos:patch.Pos+patch.Len])
+			size += int64((patch.Pos + patch.Len - patch.Pos))
+		}
+	}
+	wbuf.Flush()
+	newHash := md5sum(buf.Bytes())
+	if newHash != patchList.Hash {
+		fmt.Fprintf(os.Stderr, "md5sum error: %s   %s\n", patchList.Hash, newHash)
+	}
+
+	f.Truncate(int64(size)) //去掉多余数据
+
+	mtime := fidMtimeMap[patchList.Fid]
+	tm := time.Unix(mtime, 0)
+	err = os.Chtimes(path, tm, tm)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Chtimes err: %s\n", err.Error())
+	}
+	fmt.Fprintf(os.Stderr, "rebuild file fid:%d  patchSize:%d  %s   %d  %s\n", patchList.Fid, len(patchList.List), path, size, newHash)
+	return nil
 }
 
 func FileListCheck(ds *gproto.DirStruct) (*gproto.FileSumList, error) {
@@ -114,20 +178,21 @@ func FileListCheck(ds *gproto.DirStruct) (*gproto.FileSumList, error) {
 		pathStack.PushBack(ds)
 
 		fileList := ds.GetFileList()
-		var fullPath string
+		var pathBuf bytes.Buffer
 		if len(fileList) > 0 {
 			for e := pathStack.Front(); e != nil; e = e.Next() {
-				fullPath += ((e.Value.(*gproto.DirStruct).Name) + "/")
+				pathBuf.WriteString(e.Value.(*gproto.DirStruct).Name)
+				pathBuf.WriteByte(os.PathSeparator)
 			}
 		}
 
 		for _, file := range fileList {
-			path := basePath + fullPath + file.Name
+			path := strings.Join([]string{basePath, pathBuf.String(), file.Name}, "")
 
 			fileInfo, err := os.Stat(path)
 			if err != nil {
 				if os.IsNotExist(err) {
-					errwriter.WriteString("msg missing " + path + "\n")
+					//fmt.Fprintf(os.Stderr, "msg missing %s\n", path)
 					fidMtimeMap[file.Fid] = file.Mtime
 					fidPathMap[file.Fid] = path
 
@@ -157,7 +222,7 @@ func FileListCheck(ds *gproto.DirStruct) (*gproto.FileSumList, error) {
 			}
 
 			if file.Mtime != fileInfo.ModTime().Unix() || file.Size != fileInfo.Size() {
-				// errwriter.WriteString("msg diff " + path + "\n")
+				//fmt.Fprintf(os.Stderr, "msg diff %s\n", path)
 				fidMtimeMap[file.Fid] = file.Mtime
 				fidPathMap[file.Fid] = path
 
