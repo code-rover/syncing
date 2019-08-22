@@ -3,11 +3,17 @@ package receiver
 import (
 	"crypto/md5"
 	"encoding/hex"
+	"io/ioutil"
 	"syncing/gproto"
 )
 
-func MakeSumList(data []byte) *gproto.SumList {
+func MakeSumList(path string) *gproto.SumList {
 	var sumList gproto.SumList
+	data, err := ioutil.ReadFile(path)
+	if err != nil {
+		return &sumList
+	}
+
 	if len(data) < step {
 		return &sumList
 	}

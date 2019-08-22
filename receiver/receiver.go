@@ -5,7 +5,6 @@ import (
 	"bufio"
 	"container/list"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sync"
@@ -96,6 +95,9 @@ func FileListCheck(ds *gproto.DirStruct) (*gproto.FileSumList, error) {
 	pathStack := list.New()                        //用于计算全路径
 	visitedMap := make(map[*gproto.DirStruct]bool) //记录节点是否访问过
 
+	var waitGroup sync.WaitGroup = sync.WaitGroup{}
+	var mutex sync.Mutex = sync.Mutex{}
+
 	stack := list.New()
 	stack.PushBack(ds)
 
@@ -122,8 +124,10 @@ func FileListCheck(ds *gproto.DirStruct) (*gproto.FileSumList, error) {
 			fileInfo, err := os.Stat(path)
 			if err != nil {
 				if os.IsNotExist(err) {
-					// errwriter.WriteString("msg missing " + path + "\n")
+					errwriter.WriteString("msg missing " + path + "\n")
 					fidMtimeMap[file.Fid] = file.Mtime
+					fidPathMap[file.Fid] = path
+
 					err := os.MkdirAll(filepath.Dir(path), os.ModePerm)
 					if err != nil {
 						fmt.Fprintf(os.Stderr, "Mkdir err %s %s\n", filepath.Dir(path), err)
@@ -134,9 +138,15 @@ func FileListCheck(ds *gproto.DirStruct) (*gproto.FileSumList, error) {
 						fmt.Fprintf(os.Stderr, "Createfile err %s %s\n", path, err)
 						continue
 					}
-
-					fileInfo, err = f.Stat()
 					f.Close()
+					//fileInfo, err = f.Stat()
+
+					var sumList gproto.SumList
+					sumList.Fid = file.Fid
+					mutex.Lock()
+					fileSumList.List = append(fileSumList.List, &sumList)
+					mutex.Unlock()
+					continue
 
 				} else {
 					errwriter.WriteString("msg err " + err.Error() + "\n")
@@ -147,17 +157,20 @@ func FileListCheck(ds *gproto.DirStruct) (*gproto.FileSumList, error) {
 			if file.Mtime != fileInfo.ModTime().Unix() || file.Size != fileInfo.Size() {
 				// errwriter.WriteString("msg diff " + path + "\n")
 				fidMtimeMap[file.Fid] = file.Mtime
-				fileData, err := ioutil.ReadFile(path)
-				if err != nil {
-					errwriter.WriteString("msg err " + err.Error() + "\n")
-					continue
-				}
-				sumList := MakeSumList(fileData)
-				sumList.Fid = file.GetFid()
-				fidPathMap[sumList.Fid] = path
-				// fmt.Fprintf(os.Stderr, "msg sumList %s  %d\n", path, len(sumList.List))
+				fidPathMap[file.Fid] = path
 
-				fileSumList.List = append(fileSumList.List, sumList)
+				waitGroup.Add(1)
+				go func(fid int32, mypath string) {
+					defer waitGroup.Done()
+
+					sumList := MakeSumList(mypath)
+					sumList.Fid = fid
+
+					//fmt.Fprintf(os.Stderr, "msg sumList %s  %d\n", path, len(sumList.List))
+					mutex.Lock()
+					fileSumList.List = append(fileSumList.List, sumList)
+					mutex.Unlock()
+				}(file.Fid, path)
 			}
 		}
 
@@ -189,5 +202,7 @@ func FileListCheck(ds *gproto.DirStruct) (*gproto.FileSumList, error) {
 		}
 	}
 	errwriter.Flush()
+
+	waitGroup.Wait()
 	return &fileSumList, nil
 }
