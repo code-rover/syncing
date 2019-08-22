@@ -29,8 +29,8 @@ func main() {
 		remoteBasePath = "/home/darren/201907"
 	}
 
-	//err := sender.Send("10.81.6.101", "36000", "darren", "/home/darren/syncing/syncing", remoteBasePath)
-	err := sender.Send("192.168.1.105", "22", "darren", "/home/darren/syncing/syncing", remoteBasePath)
+	err := sender.Start("10.81.6.101", "36000", "darren", "/home/darren/syncing/syncing", remoteBasePath)
+	//err := sender.Start("192.168.1.105", "22", "darren", "/home/darren/syncing/syncing", remoteBasePath)
 	if err != nil {
 		panic(err)
 	}

@@ -14,19 +14,18 @@ import (
 	"github.com/golang/protobuf/proto"
 )
 
-var step = 10
-
-var fidPathMap = make(map[int32]string)
-var fidMtimeMap = make(map[int32]int64)
-var conn *comm.Connection
-var basePath string
+var (
+	step        = 0
+	fidPathMap  = make(map[int32]string)
+	fidMtimeMap = make(map[int32]int64)
+	conn        *comm.Connection
+	basePath    string
+)
 
 func RunServer() {
 	errwriter := bufio.NewWriter(os.Stderr)
 	errwriter.WriteString("msg welcome!\n")
 	errwriter.Flush()
-
-	//basePath := "/home/darren/syncing/dir1/"
 
 	reader := bufio.NewReader(os.Stdin)
 	writer := bufio.NewWriter(os.Stdout)
@@ -49,9 +48,13 @@ func ProcessMsg(conn *comm.Connection) {
 			return
 		}
 
-		if cmd == gproto.MSG_A_DIR_INFO {
+		if cmd == gproto.MSG_A_INITPARAM {
+			initParam := st.(*gproto.InitParam)
+			step = int(initParam.Step)
+			basePath = initParam.BasePath
+
+		} else if cmd == gproto.MSG_A_DIR_INFO {
 			ds := st.(*gproto.DirStruct)
-			basePath = ds.Name
 			fileSumList, err := FileListCheck(ds)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "msg FileListCheck error: %s\n", err.Error())
@@ -119,7 +122,8 @@ func FileListCheck(ds *gproto.DirStruct) (*gproto.FileSumList, error) {
 		}
 
 		for _, file := range fileList {
-			path := /*basePath + */ fullPath + file.Name
+			path := basePath + fullPath + file.Name
+			fmt.Fprintf(os.Stderr, "msg pasePath: %s\n", path)
 
 			fileInfo, err := os.Stat(path)
 			if err != nil {

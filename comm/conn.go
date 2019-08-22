@@ -63,6 +63,11 @@ func (self *Connection) Recv() (int8, interface{}, error) {
 	}
 
 	switch cmd {
+	case gproto.MSG_A_INITPARAM:
+		var initParam gproto.InitParam
+		err := proto.Unmarshal(dataBuf, &initParam)
+		return cmd, &initParam, err
+
 	case gproto.MSG_A_DIR_INFO:
 		var st gproto.DirStruct
 		err := proto.Unmarshal(dataBuf, &st)
@@ -86,4 +91,8 @@ func (self *Connection) Recv() (int8, interface{}, error) {
 	}
 
 	return 0, nil, errors.New("not hit")
+}
+
+func (self *Connection) Flush() {
+	self.wBuf.Flush()
 }

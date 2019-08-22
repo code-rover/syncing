@@ -1,6 +1,10 @@
 syntax = "proto3";
 package gproto;
 
+message InitParam {
+    string basePath = 1;
+    int32 step = 2;
+}
 
 message file_struct {
     string name = 1;
