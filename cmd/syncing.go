@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"syncing/receiver"
 	"syncing/sender"
 )
@@ -30,6 +31,9 @@ func main() {
 	param.LocalBasePath = flag.Args()[0]
 	param.RemoteBasePath = flag.Args()[1]
 
+	if !strings.HasSuffix(param.LocalBasePath, "/") {
+		param.LocalBasePath += "/"
+	}
 	if param.LocalBasePath == "." {
 		param.LocalBasePath = "./"
 	}

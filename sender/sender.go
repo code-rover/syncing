@@ -121,17 +121,18 @@ func ProcessMsg(conn *comm.Connection) error {
 			fileSumList := st.(*gproto.FileSumList)
 
 			for _, sumList := range fileSumList.List {
-				// fmt.Printf(">%d  %d: %s\n", i, sumList.Fid, fidMap[sumList.Fid])
-
 				waitGroup.Add(1)
 				goLimit <- true
 
 				go func(path string, sumList *gproto.SumList) {
 					defer waitGroup.Done()
-					<-goLimit
+					defer func() {
+						<-goLimit
+					}()
 					fdata, err := ioutil.ReadFile(path)
 					if err != nil {
-						fmt.Printf("ReadFile error: %s\n", err.Error())
+						fmt.Printf("ReadFile error: %s   %s\n", path, err.Error())
+						panic("ReadFile err: " + err.Error())
 						// return err
 					}
 					// fmt.Printf("Readfile %s  size: %d\n", fidMap[sumList.Fid], len(fdata))
@@ -142,7 +143,8 @@ func ProcessMsg(conn *comm.Connection) error {
 					patchListBytes, err := proto.Marshal(patchList)
 					if err != nil {
 						fmt.Printf("Marshal error patchList: %s\n", err.Error())
-						// return err
+						panic("Marshal error: " + err.Error())
+						//return err
 					}
 					//fmt.Printf(">patch after Marsha1size:%s   %d\n", fidMap[sumList.Fid], len(patchListBytes))
 

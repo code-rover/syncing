@@ -106,7 +106,9 @@ func ProcessMsg(conn *comm.Connection) error {
 
 func RebuildFile(patchList *gproto.PatchList) error {
 	defer rebuildWaitGroup.Done()
-	<-rebuildGoLimit
+	defer func() {
+		<-rebuildGoLimit
+	}()
 
 	path := fidPathMap[patchList.Fid]
 
