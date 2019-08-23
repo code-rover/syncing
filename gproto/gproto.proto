@@ -7,6 +7,11 @@ message InitParam {
     bool delete = 3;
 }
 
+message SyncResult {
+    uint32 succNum = 1;
+    repeated int32 failedList = 2;
+}
+
 message file_struct {
     string name = 1;
     int32 fid   = 2;

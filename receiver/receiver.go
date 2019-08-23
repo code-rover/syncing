@@ -1,17 +1,17 @@
 package receiver
 
-//
 import (
 	"bufio"
 	"bytes"
 	"container/list"
-	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syncing/comm"
 	"syncing/gproto"
 	"time"
@@ -25,8 +25,10 @@ var (
 	fidMtimeMap = make(map[int32]int64)
 	conn        *comm.Connection
 	basePath    string
-	goMaxNum    = 100
+	goMaxNum    = 1
 )
+
+var syncResult gproto.SyncResult
 
 func RunServer() {
 	errwriter := bufio.NewWriter(os.Stderr)
@@ -41,11 +43,24 @@ func RunServer() {
 	ProcessMsg(conn)
 
 	fmt.Fprintf(os.Stderr, "msg server stoped\n")
-	conn.Send(gproto.MSG_B_END, []byte{})
+	data, err := proto.Marshal(&syncResult)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "msg Marsha syncResult error: %s\n", err.Error())
+		return
+	}
+
+	_, err = conn.Send(gproto.MSG_B_END, data)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "msg Send fidBytes  error: %s\n", err.Error())
+		return
+	}
+	// conn.Send(gproto.MSG_B_END, []byte{})
 }
 
 var rebuildWaitGroup = sync.WaitGroup{}
 var rebuildGoLimit = make(chan bool, goMaxNum)
+
+var syncResultMutex = sync.Mutex{}
 
 func ProcessMsg(conn *comm.Connection) error {
 	for {
@@ -112,54 +127,80 @@ func RebuildFile(patchList *gproto.PatchList) error {
 
 	path := fidPathMap[patchList.Fid]
 
-	if path == "" {
-		return errors.New("not found file in map")
-	}
-
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0666)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, err.Error())
-		return errors.New(err.Error())
-	}
-	defer f.Close()
-
-	wbuf := bufio.NewWriter(f)
-
-	fdata, err := ioutil.ReadFile(path)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "msg error "+err.Error())
-		return errors.New(err.Error())
-	}
-
-	var size int64
-	buf := bytes.Buffer{}
-	for _, patch := range patchList.List {
-		if patch.Pos == -1 {
-			wbuf.Write(patch.Data)
-			buf.Write(patch.Data)
-			size += int64(len(patch.Data))
-		} else {
-			wbuf.Write(fdata[patch.Pos : patch.Pos+patch.Len])
-			buf.Write(fdata[patch.Pos : patch.Pos+patch.Len])
-			//fmt.Fprintf(os.Stderr, "msg patch.Data: %s\n", fdata[patch.Pos:patch.Pos+patch.Len])
-			size += int64((patch.Pos + patch.Len - patch.Pos))
+	for ok := true; ok; ok = false { //do .. while(1)
+		if path == "" {
+			break
 		}
-	}
-	wbuf.Flush()
-	newHash := md5sum(buf.Bytes())
-	if newHash != patchList.Hash {
-		fmt.Fprintf(os.Stderr, "md5sum error: %s   %s\n", patchList.Hash, newHash)
+
+		f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0666)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, err.Error())
+			break
+		}
+		defer f.Close()
+
+		stat, err := f.Stat()
+		fdata := make([]byte, stat.Size())
+		_, err = io.ReadFull(bufio.NewReader(f), fdata)
+
+		buf := bytes.Buffer{}
+		for _, patch := range patchList.List {
+			if patch.Pos == -1 {
+				if _, err := buf.Write(patch.Data); err != nil {
+					break
+				}
+			} else {
+				if int(patch.Pos+patch.Len) > len(fdata) {
+					fmt.Fprintf(os.Stderr, "msg buf.Write pos:%d, len:%d  datalen:%d  path: %s\n", patch.Pos, patch.Len, len(fdata), path)
+				}
+				if _, err := buf.Write(fdata[patch.Pos : patch.Pos+patch.Len]); err != nil {
+					break
+				}
+			}
+		}
+
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "msg WriteFile error : %s\n", err.Error())
+			break
+		}
+
+		newHash := md5sum(buf.Bytes()) //md5校验结果用
+		bufLen := buf.Len()
+
+		wbuf := bufio.NewWriterSize(f, bufLen)
+		buf.WriteTo(wbuf)
+		wbuf.Flush()
+		f.Truncate(int64(bufLen)) //去掉多余数据
+
+		d, _ := ioutil.ReadFile(path)
+		checkHash := md5sum(d)
+
+		if checkHash != newHash {
+			fmt.Fprintf(os.Stderr, "md5sum error1: %s   %s\n", checkHash, newHash)
+			break
+		}
+
+		if newHash != patchList.Hash {
+			fmt.Fprintf(os.Stderr, "md5sum error2: %s   %s\n", patchList.Hash, newHash)
+			break
+		}
+
+		mtime := fidMtimeMap[patchList.Fid]
+		tm := time.Unix(mtime, 0)
+		err = os.Chtimes(path, tm, tm)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Chtimes err: %s\n", err.Error())
+		}
+		fmt.Fprintf(os.Stderr, "rebuild file fid:%d  patchSize:%d  %s   %d  %s\n", patchList.Fid, len(patchList.List), path, bufLen, newHash)
+		atomic.AddUint32(&syncResult.SuccNum, 1)
+
+		return nil
 	}
 
-	f.Truncate(int64(size)) //去掉多余数据
-
-	mtime := fidMtimeMap[patchList.Fid]
-	tm := time.Unix(mtime, 0)
-	err = os.Chtimes(path, tm, tm)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Chtimes err: %s\n", err.Error())
-	}
-	fmt.Fprintf(os.Stderr, "rebuild file fid:%d  patchSize:%d  %s   %d  %s\n", patchList.Fid, len(patchList.List), path, size, newHash)
+	//failed..
+	syncResultMutex.Lock()
+	syncResult.FailedList = append(syncResult.FailedList, patchList.Fid)
+	syncResultMutex.Unlock()
 	return nil
 }
 

@@ -13,6 +13,7 @@ import (
 	"sync"
 	"syncing/comm"
 	"syncing/gproto"
+	"time"
 
 	"github.com/golang/protobuf/proto"
 )
@@ -23,7 +24,7 @@ var (
 	fidPathMap     = make(map[int32]string)
 	localBasePath  string
 	remoteBasePath string
-	goMaxNum       = 100
+	goMaxNum       = 5
 )
 
 type Params struct {
@@ -65,6 +66,7 @@ func Start(params *Params) error {
 		subProcessDone <- true
 	}()
 
+	t1 := time.Now()
 	//初始化参数
 	param := gproto.InitParam{}
 	param.BasePath = remoteBasePath
@@ -101,7 +103,8 @@ func Start(params *Params) error {
 	ProcessMsg(conn)
 
 	<-subProcessDone
-	fmt.Println("over!")
+	elapsed := time.Since(t1)
+	fmt.Printf("Done  %s\n", elapsed)
 	return nil
 }
 
@@ -163,6 +166,17 @@ func ProcessMsg(conn *comm.Connection) error {
 			conn.Send(gproto.MSG_A_END, []byte{})
 
 		} else if cmd == gproto.MSG_B_END {
+			syncResult := st.(*gproto.SyncResult)
+			fmt.Println("sync done")
+			fmt.Println("==========================================================")
+			fmt.Printf("success nums: %d\n", syncResult.SuccNum)
+			if len(syncResult.FailedList) > 0 {
+				fmt.Printf("failed list num: %d\n", len(syncResult.FailedList))
+				for i, fid := range syncResult.FailedList {
+					fmt.Printf("%d: %s\n", i, fidPathMap[fid])
+				}
+			}
+
 			// fmt.Println("recv MSG_B_END")
 			return nil
 		}

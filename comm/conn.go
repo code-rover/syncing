@@ -87,7 +87,9 @@ func (self *Connection) Recv() (int8, interface{}, error) {
 		return cmd, nil, nil
 
 	case gproto.MSG_B_END:
-		return cmd, nil, nil
+		var syncResult gproto.SyncResult
+		err = proto.Unmarshal(dataBuf, &syncResult)
+		return cmd, &syncResult, err
 	}
 
 	return 0, nil, errors.New("not hit")
