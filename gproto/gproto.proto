@@ -4,6 +4,7 @@ package gproto;
 message InitParam {
     string basePath = 1;
     int32 step = 2;
+    bool delete = 3;
 }
 
 message file_struct {

@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"syncing/comm"
 	"syncing/gproto"
@@ -25,10 +26,23 @@ var (
 	goMaxNum       = 100
 )
 
-func Start(ip string, port string, user string, execPath string, lpath string, rpath string, myStep int) error {
-	step = myStep
-	localBasePath = lpath
-	remoteBasePath = rpath
+type Params struct {
+	Step           int
+	ExecPath       string
+	Delete         bool
+	LocalBasePath  string
+	RemoteBasePath string
+	Port           int
+}
+
+//func Start(ip string, port string, user string, execPath string, lpath string, rpath string, myStep int) error {
+func Start(params *Params) error {
+	step = params.Step
+	localBasePath = params.LocalBasePath
+
+	conns := strings.Split(params.RemoteBasePath, ":")
+	remoteBasePath = conns[1]
+
 	var stdout io.Reader
 	var stdin io.Writer
 
@@ -36,7 +50,9 @@ func Start(ip string, port string, user string, execPath string, lpath string, r
 	pipeDone := make(chan bool)
 
 	go func() {
-		cmd := exec.Command("ssh", "-p"+port, user+"@"+ip, execPath+" --server")
+		//cmd := exec.Command("ssh", "-p"+port, user+"@"+ip, execPath+" --server")
+		sshPort := fmt.Sprintf("-p %d", params.Port)
+		cmd := exec.Command("ssh", sshPort, conns[0], params.ExecPath+" --server")
 		stdout, _ = cmd.StdoutPipe()
 		stdin, _ = cmd.StdinPipe()
 		cmd.Stderr = os.Stderr

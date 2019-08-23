@@ -9,14 +9,12 @@ import (
 )
 
 func main() {
-	cwd, _ := os.Getwd()
-	println(cwd)
-
 	isServer := flag.Bool("server", false, "is server mode?")
-	step := flag.Uint("step", 500, "step")
-	lpath := flag.String("lpath", "./", "local path")
-	rpath := flag.String("rpath", "", "remote path")
-	execPath := flag.String("exec", "~/syncing/syncing", "exec path")
+	var param sender.Params
+	flag.IntVar(&param.Step, "step", 100, "step size")
+	flag.StringVar(&param.ExecPath, "exec", "~/syncing/syncing", "remote exec path")
+	flag.IntVar(&param.Port, "port", 36000, "server port")
+	flag.BoolVar(&param.Delete, "delete", false, "delete remote files?")
 	flag.Parse()
 
 	if *isServer {
@@ -24,31 +22,19 @@ func main() {
 		return
 	}
 
-	if *rpath == "" {
-		usage()
+	args := flag.Args()
+	if len(args) != 2 {
+		flag.Usage()
 		return
 	}
-	if *lpath == "." {
-		*lpath = "./"
+	param.LocalBasePath = flag.Args()[0]
+	param.RemoteBasePath = flag.Args()[1]
+
+	if param.LocalBasePath == "." {
+		param.LocalBasePath = "./"
 	}
 
-	// args := flag.Args()
-	// if len(args) != 2 {
-	// 	flag.Usage()
-	// 	return
-	// }
-	// //from := flag.Args()[0]
-	// remoteBasePath := flag.Args()[1]
-	// p2 := os.Args[2]
-	// fmt.Printf("remoteBasePath: %s\n", remoteBasePath)
-	// fmt.Printf("p2: %s\n", p2)
-
-	// if remoteBasePath == "." {
-	// 	remoteBasePath = "/home/darren/201907"
-	// }
-
-	err := sender.Start("10.81.6.101", "36000", "darren", *execPath, *lpath, *rpath, int(*step))
-	//err := sender.Start("192.168.1.105", "22", "darren", "/home/darren/syncing/syncing", remoteBasePath)
+	err := sender.Start(&param)
 	if err != nil {
 		panic(err)
 	}

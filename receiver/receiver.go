@@ -47,36 +47,43 @@ func RunServer() {
 var rebuildWaitGroup = sync.WaitGroup{}
 var rebuildGoLimit = make(chan bool, goMaxNum)
 
-func ProcessMsg(conn *comm.Connection) {
+func ProcessMsg(conn *comm.Connection) error {
 	for {
 		cmd, st, err := conn.Recv()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "msg recv err: %s\n", err.Error())
-			return
+			return err
 		}
 
 		if cmd == gproto.MSG_A_INITPARAM {
 			initParam := st.(*gproto.InitParam)
 			step = int(initParam.Step)
-			basePath = initParam.BasePath
+			if strings.HasPrefix(initParam.BasePath, "~/") {
+				initParam.BasePath = initParam.BasePath[2:]
+			}
+			basePath, err = filepath.Abs(initParam.BasePath)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "msg basePath error %s\n", err.Error())
+				return err
+			}
 
 		} else if cmd == gproto.MSG_A_DIR_INFO {
 			ds := st.(*gproto.DirStruct)
 			fileSumList, err := FileListCheck(ds)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "msg FileListCheck error: %s\n", err.Error())
-				return
+				return err
 			}
 			fidBytes, err := proto.Marshal(fileSumList)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "msg Marsha1 fileSumList error: %s\n", err.Error())
-				return
+				return err
 			}
 
 			_, err = conn.Send(gproto.MSG_B_SUMLIST, fidBytes)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "msg Send fidBytes  error: %s\n", err.Error())
-				return
+				return err
 			}
 
 		} else if cmd == gproto.MSG_A_PATCHLIST {
@@ -94,6 +101,7 @@ func ProcessMsg(conn *comm.Connection) {
 		}
 	}
 	rebuildWaitGroup.Wait()
+	return nil
 }
 
 func RebuildFile(patchList *gproto.PatchList) error {
