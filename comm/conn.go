@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"syncing/gproto"
+	"unsafe"
 
 	"github.com/golang/protobuf/proto"
 )
@@ -13,6 +14,9 @@ import (
 type Connection struct {
 	rBuf *bufio.Reader
 	wBuf *bufio.Writer
+
+	TotalSend int64
+	TotalRecv int64
 }
 
 func NewConn(rb *bufio.Reader, wb *bufio.Writer) *Connection {
@@ -40,6 +44,7 @@ func (self *Connection) Send(id int8, data []byte) (int, error) {
 	if err != nil {
 		return n, err
 	}
+	self.TotalSend += int64(len(data))
 	self.wBuf.Flush()
 	return n, nil
 }
@@ -62,6 +67,7 @@ func (self *Connection) Recv() (int8, interface{}, error) {
 		}
 	}
 
+	self.TotalRecv += int64(unsafe.Sizeof(header)) + int64(length)
 	switch cmd {
 	case gproto.MSG_A_INITPARAM:
 		var initParam gproto.InitParam

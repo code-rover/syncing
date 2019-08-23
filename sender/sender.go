@@ -36,7 +36,6 @@ type Params struct {
 	Port           int
 }
 
-//func Start(ip string, port string, user string, execPath string, lpath string, rpath string, myStep int) error {
 func Start(params *Params) error {
 	step = params.Step
 	localBasePath = params.LocalBasePath
@@ -51,7 +50,6 @@ func Start(params *Params) error {
 	pipeDone := make(chan bool)
 
 	go func() {
-		//cmd := exec.Command("ssh", "-p"+port, user+"@"+ip, execPath+" --server")
 		sshPort := fmt.Sprintf("-p %d", params.Port)
 		cmd := exec.Command("ssh", sshPort, conns[0], params.ExecPath+" --server")
 		stdout, _ = cmd.StdoutPipe()
@@ -71,6 +69,7 @@ func Start(params *Params) error {
 	param := gproto.InitParam{}
 	param.BasePath = remoteBasePath
 	param.Step = int32(step)
+	param.Delete = params.Delete
 
 	fmt.Printf("localBasePath: %s\n", localBasePath)
 	fmt.Printf("remoteBasePath: %s\n", remoteBasePath)
@@ -167,15 +166,29 @@ func ProcessMsg(conn *comm.Connection) error {
 
 		} else if cmd == gproto.MSG_B_END {
 			syncResult := st.(*gproto.SyncResult)
+			time.Sleep(100 * time.Millisecond)
 			fmt.Println("sync done")
 			fmt.Println("==========================================================")
-			fmt.Printf("success nums: %d\n", syncResult.SuccNum)
+			fmt.Printf("success count: %d\n", syncResult.SuccNum)
+			fmt.Printf("failed count: %d\n", len(syncResult.FailedList))
 			if len(syncResult.FailedList) > 0 {
-				fmt.Printf("failed list num: %d\n", len(syncResult.FailedList))
-				for i, fid := range syncResult.FailedList {
-					fmt.Printf("%d: %s\n", i, fidPathMap[fid])
+				if len(syncResult.FailedList) < 10 {
+					for i, fid := range syncResult.FailedList {
+						fmt.Printf("%d: %s\n", i, fidPathMap[fid])
+					}
 				}
 			}
+			fmt.Printf("removed count: %d\n", len(syncResult.RemovedList))
+			if len(syncResult.RemovedList) > 0 {
+				if len(syncResult.RemovedList) < 10 {
+					for i, path := range syncResult.RemovedList {
+						fmt.Printf("%d: %s\n", i, path)
+					}
+				}
+			}
+			fmt.Printf("totalSend: %d bytes\n", conn.TotalSend)
+			fmt.Printf("totalRecv: %d bytes\n", conn.TotalRecv)
+			fmt.Println("==========================================================")
 
 			// fmt.Println("recv MSG_B_END")
 			return nil
@@ -219,9 +232,9 @@ func ReadDirInfo() ([]byte, error) {
 		}
 		for _, f := range dir {
 			if f.IsDir() {
-				if f.Name() == ".git" /* || f.Name() == "pkg"*/ {
-					continue
-				}
+				// if f.Name() == ".git" /* || f.Name() == "pkg"*/ {
+				// 	continue
+				// }
 				newNode := MakeNode(&gproto.DirStruct{
 					Name:  f.Name(),
 					Mode:  0,

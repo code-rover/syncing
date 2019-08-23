@@ -23,9 +23,11 @@ var (
 	step        = 0
 	fidPathMap  = make(map[int32]string)
 	fidMtimeMap = make(map[int32]int64)
+	pathMap     = make(map[string]bool)
 	conn        *comm.Connection
 	basePath    string
-	goMaxNum    = 1
+	initParam   *gproto.InitParam
+	goMaxNum    = 4
 )
 
 var syncResult gproto.SyncResult
@@ -57,7 +59,7 @@ func RunServer() {
 	// conn.Send(gproto.MSG_B_END, []byte{})
 }
 
-var rebuildWaitGroup = sync.WaitGroup{}
+var taskWaitGroup = sync.WaitGroup{}
 var rebuildGoLimit = make(chan bool, goMaxNum)
 
 var syncResultMutex = sync.Mutex{}
@@ -71,7 +73,7 @@ func ProcessMsg(conn *comm.Connection) error {
 		}
 
 		if cmd == gproto.MSG_A_INITPARAM {
-			initParam := st.(*gproto.InitParam)
+			initParam = st.(*gproto.InitParam)
 			step = int(initParam.Step)
 			if strings.HasPrefix(initParam.BasePath, "~/") {
 				initParam.BasePath = initParam.BasePath[2:]
@@ -89,6 +91,15 @@ func ProcessMsg(conn *comm.Connection) error {
 				fmt.Fprintf(os.Stderr, "msg FileListCheck error: %s\n", err.Error())
 				return err
 			}
+			if initParam.Delete {
+				fmt.Fprintf(os.Stderr, "initParam.Delete true\n")
+				taskWaitGroup.Add(1)
+				go RemoveFiles()
+			} else {
+				fmt.Fprintf(os.Stderr, "initParam.Delete false\n")
+
+			}
+
 			fidBytes, err := proto.Marshal(fileSumList)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "msg Marsha1 fileSumList error: %s\n", err.Error())
@@ -103,7 +114,7 @@ func ProcessMsg(conn *comm.Connection) error {
 
 		} else if cmd == gproto.MSG_A_PATCHLIST {
 			patchList := st.(*gproto.PatchList)
-			rebuildWaitGroup.Add(1)
+			taskWaitGroup.Add(1)
 			rebuildGoLimit <- true
 			go RebuildFile(patchList)
 
@@ -115,12 +126,12 @@ func ProcessMsg(conn *comm.Connection) error {
 			break
 		}
 	}
-	rebuildWaitGroup.Wait()
+	taskWaitGroup.Wait()
 	return nil
 }
 
 func RebuildFile(patchList *gproto.PatchList) error {
-	defer rebuildWaitGroup.Done()
+	defer taskWaitGroup.Done()
 	defer func() {
 		<-rebuildGoLimit
 	}()
@@ -142,6 +153,7 @@ func RebuildFile(patchList *gproto.PatchList) error {
 		stat, err := f.Stat()
 		fdata := make([]byte, stat.Size())
 		_, err = io.ReadFull(bufio.NewReader(f), fdata)
+		f.Seek(0, 0)
 
 		buf := bytes.Buffer{}
 		for _, patch := range patchList.List {
@@ -177,6 +189,7 @@ func RebuildFile(patchList *gproto.PatchList) error {
 
 		if checkHash != newHash {
 			fmt.Fprintf(os.Stderr, "md5sum error1: %s   %s\n", checkHash, newHash)
+			fmt.Fprintf(os.Stderr, "%s\n", string(buf.Bytes()))
 			break
 		}
 
@@ -191,7 +204,7 @@ func RebuildFile(patchList *gproto.PatchList) error {
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Chtimes err: %s\n", err.Error())
 		}
-		fmt.Fprintf(os.Stderr, "rebuild file fid:%d  patchSize:%d  %s   %d  %s\n", patchList.Fid, len(patchList.List), path, bufLen, newHash)
+		fmt.Fprintf(os.Stderr, "rebuild file id:%d block:%d len:%d  %s\n", patchList.Fid, len(patchList.List), bufLen, path)
 		atomic.AddUint32(&syncResult.SuccNum, 1)
 
 		return nil
@@ -239,6 +252,10 @@ func FileListCheck(ds *gproto.DirStruct) (*gproto.FileSumList, error) {
 
 		for _, file := range fileList {
 			path := strings.Join([]string{basePath, pathBuf.String(), file.Name}, "")
+
+			if initParam.Delete {
+				pathMap[path] = true
+			}
 
 			fileInfo, err := os.Stat(path)
 			if err != nil {

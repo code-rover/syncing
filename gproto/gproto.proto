@@ -10,6 +10,7 @@ message InitParam {
 message SyncResult {
     uint32 succNum = 1;
     repeated int32 failedList = 2;
+    repeated string removedList = 3;
 }
 
 message file_struct {
