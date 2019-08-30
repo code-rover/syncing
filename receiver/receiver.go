@@ -71,6 +71,7 @@ func ProcessMsg(conn *comm.Connection) error {
 			fmt.Fprintf(os.Stderr, "msg recv err: %s\n", err.Error())
 			return err
 		}
+		fmt.Fprintf(os.Stderr, "msg recv cmd:%d\n", cmd)
 
 		if cmd == gproto.MSG_A_INITPARAM {
 			initParam = st.(*gproto.InitParam)
@@ -143,6 +144,14 @@ func RebuildFile(patchList *gproto.PatchList) error {
 			break
 		}
 
+		stat, err := os.Lstat(path) // If there is an error, it will be of type *PathError.
+		if err != nil {
+			dirPath := filepath.Dir(path)
+			if _, err := os.Stat(dirPath); err != nil {
+				os.MkdirAll(dirPath, os.ModePerm)
+			}
+		}
+
 		f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0666)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, err.Error())
@@ -150,7 +159,26 @@ func RebuildFile(patchList *gproto.PatchList) error {
 		}
 		defer f.Close()
 
-		stat, err := f.Stat()
+		if stat == nil {
+			stat, err = os.Lstat(path)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Lstat err %s  err:%s\n", path, err.Error())
+				break
+			}
+		}
+		if stat.Mode()&os.ModeSymlink != 0 {
+			link, err := os.Readlink(path)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "msg error read symlink file failed: %s  %s\n", path, err.Error())
+				break
+			}
+			err = os.Symlink(link, path)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "msg error create symlink file : %s\n", path)
+				break
+			}
+		}
+
 		fdata := make([]byte, stat.Size())
 		_, err = io.ReadFull(bufio.NewReader(f), fdata)
 		f.Seek(0, 0)
@@ -264,22 +292,8 @@ func FileListCheck(ds *gproto.DirStruct) (*gproto.FileSumList, error) {
 					fidMtimeMap[file.Fid] = file.Mtime
 					fidPathMap[file.Fid] = path
 
-					err := os.MkdirAll(filepath.Dir(path), os.ModePerm)
-					if err != nil {
-						fmt.Fprintf(os.Stderr, "Mkdir err %s %s\n", filepath.Dir(path), err)
-						continue
-					}
-					f, err := os.Create(path) //不存在 先创建
-					if err != nil {
-						fmt.Fprintf(os.Stderr, "Createfile err %s %s\n", path, err)
-						continue
-					}
-					f.Close()
-
-					var sumList gproto.SumList
-					sumList.Fid = file.Fid
 					mutex.Lock()
-					fileSumList.List = append(fileSumList.List, &sumList)
+					fileSumList.List = append(fileSumList.List, &gproto.SumList{Fid: file.Fid})
 					mutex.Unlock()
 					continue
 

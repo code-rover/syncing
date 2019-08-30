@@ -7,9 +7,15 @@ import (
 	"strings"
 	"syncing/receiver"
 	"syncing/sender"
+
+	"github.com/pkg/profile"
 )
 
 func main() {
+	stopper := profile.Start(profile.CPUProfile, profile.ProfilePath(".")) // 开始性能分析, 返回一个停止接口
+	defer stopper.Stop()                                                   // 在被测试程序结束时停止性能分析
+	// profile.ProfilePath(".")
+	// defer profile.Start().Stop()
 	isServer := flag.Bool("server", false, "is server mode?")
 	var param sender.Params
 	flag.IntVar(&param.Step, "step", 100, "step size")

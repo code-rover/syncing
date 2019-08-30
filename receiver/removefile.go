@@ -54,7 +54,7 @@ func RemoveFiles() error {
 					syncResultMutex.Lock()
 					syncResult.RemovedList = append(syncResult.RemovedList, fullPath)
 					syncResultMutex.Unlock()
-					for dir := path.Dir(fullPath); len(dir) > 5; dir = path.Dir(dir) {
+					for dir := path.Dir(fullPath); len(dir) > len(basePath); dir = path.Dir(dir) {
 						fileInfo, _ := ioutil.ReadDir(dir)
 
 						hasFile := false

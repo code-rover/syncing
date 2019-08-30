@@ -4,17 +4,46 @@ import (
 	"bytes"
 	"crypto/md5"
 	"encoding/hex"
+	"fmt"
+	"io/ioutil"
 	"syncing/gproto"
 )
 
-func MakePatch(f2 []byte, sumList *gproto.SumList) *gproto.PatchList {
+func MakePatch(path string, sumList *gproto.SumList) *gproto.PatchList {
 	var patchList gproto.PatchList
-	patchList.Hash = md5sum(f2) //最终校验用
 
-	if len(sumList.List) == 0 { //无端为空文件
+	// fileInfo, err := os.Lstat(path)
+	// if err != nil { //path error
+	// 	panic(err)
+	// }
+	// fmt.Printf("file mode %d\n", fileInfo.Mode()&os.ModeSymlink)
+	// if fileInfo.Mode()&os.ModeSymlink > 0 {
+	// 	fmt.Printf("this file is symbolic %s\n", path)
+	// 	link, err := os.Readlink(path)
+	// 	if err != nil {
+	// 		panic(err)
+	// 	}
+	// 	var patch gproto.Patch
+	// 	patch.Pos = -1
+	// 	patch.Data = []byte(link)
+	// 	patchList.List = []*gproto.Patch{&patch}
+	// 	patchList.Hash = md5sum(patch.Data) //最终校验用
+	// 	return &patchList
+	// }
+
+	data, err := ioutil.ReadFile(path)
+	if err != nil {
+		fmt.Printf("ReadFile error: %s   %s\n", path, err.Error())
+		panic("ReadFile err: " + err.Error())
+		// return err
+	}
+
+	patchList.Hash = md5sum(data) //最终校验用
+
+	if len(sumList.List) == 0 { //远端为空文件
 		var patch gproto.Patch
 		patch.Pos = -1
-		patch.Data = f2
+		patch.Data = data
 		patchList.List = []*gproto.Patch{&patch}
 		return &patchList
 	}
@@ -26,7 +55,7 @@ func MakePatch(f2 []byte, sumList *gproto.SumList) *gproto.PatchList {
 	}
 	// fmt.Printf("sum1 size: %d\n", len(sumList.List))
 
-	dataLen := len(f2)
+	dataLen := len(data)
 
 	var backItem *gproto.Patch
 
@@ -43,9 +72,9 @@ func MakePatch(f2 []byte, sumList *gproto.SumList) *gproto.PatchList {
 		}
 
 		// if bufA != -1 && i > step && sum1 > 0 {
-		// 	sum1 = Alder32SumBasedOnPrev(f2, i, sum1) //根据上一结果增量计算,bufA不等于-1意味着上一步是连续差异数据，可以借用上次结果增量计算本次alder32值
+		// 	sum1 = Alder32SumBasedOnPrev(data, i, sum1) //根据上一结果增量计算,bufA不等于-1意味着上一步是连续差异数据，可以借用上次结果增量计算本次alder32值
 		// } else {
-		sum1 = Alder32Sum(f2[i : i+step])
+		sum1 = Alder32Sum(data[i : i+step])
 		// }
 
 		sum2List, isSum1Exist := blockMap[sum1]
@@ -53,9 +82,9 @@ func MakePatch(f2 []byte, sumList *gproto.SumList) *gproto.PatchList {
 		if isSum1Exist { //需要继续检查sum2
 			//fmt.Printf("sum1 exist %d\n", sum1)
 			for _, sum2Pos := range sum2List {
-				if sum2Pos.Sum == md5sum(f2[i:i+step]) {
+				if sum2Pos.Sum == md5sum(data[i:i+step]) {
 					sumPos = sum2Pos.Pos
-					// fmt.Printf("sumPos: %d  str: %s\n", sumPos, f2[i:i+step])
+					// fmt.Printf("sumPos: %d  str: %s\n", sumPos, data[i:i+step])
 					break
 				}
 			}
@@ -64,12 +93,12 @@ func MakePatch(f2 []byte, sumList *gproto.SumList) *gproto.PatchList {
 		if isSum1Exist && sumPos > -1 {
 			if bufA != -1 {
 				buf := bytes.NewBuffer(backItem.Data)
-				buf.Write(f2[bufA:bufB])
+				buf.Write(data[bufA:bufB])
 				backItem.Data = buf.Bytes()
 				bufA = -1
 				bufB = -1
 			}
-			//fmt.Printf("find: %d   %d   %s\n", sum1, sumPos, f2[i:i+step])
+			//fmt.Printf("find: %d   %d   %s\n", sum1, sumPos, data[i:i+step])
 
 			//优化 队列上一个元素不是字符串 或  间断块
 			if backItem == nil || backItem.Pos == -1 || sumPos != backItem.Pos+backItem.Len {
@@ -105,7 +134,7 @@ func MakePatch(f2 []byte, sumList *gproto.SumList) *gproto.PatchList {
 	//剩余差异内容
 	if bufA > -1 {
 		buf := bytes.NewBuffer(backItem.Data)
-		buf.Write(f2[bufA:bufB])
+		buf.Write(data[bufA:bufB])
 		backItem.Data = buf.Bytes()
 	}
 
@@ -116,7 +145,7 @@ func MakePatch(f2 []byte, sumList *gproto.SumList) *gproto.PatchList {
 			patchList.List = append(patchList.List, backItem)
 		}
 		buf := bytes.NewBuffer(backItem.Data)
-		buf.Write(f2[i:len(f2)])
+		buf.Write(data[i:len(data)])
 		backItem.Data = buf.Bytes()
 	}
 

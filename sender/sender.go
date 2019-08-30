@@ -118,11 +118,23 @@ func ProcessMsg(conn *comm.Connection) error {
 			fmt.Printf("Recv error: %s\n", err.Error())
 			return err
 		}
+		fmt.Printf("recv cmd:%d\n", cmd)
 
 		if cmd == gproto.MSG_B_SUMLIST {
 			fileSumList := st.(*gproto.FileSumList)
 
 			for _, sumList := range fileSumList.List {
+				fPath := fidPathMap[sumList.Fid]
+				fInfo, err := os.Lstat(fPath)
+				if err != nil {
+					fmt.Printf("not found path: %s\n", fPath)
+					return err
+				}
+				if fInfo.Mode()&os.ModeSymlink != 0 {
+					fmt.Printf("symlink file skip : %s\n", fPath)
+					continue
+				}
+
 				waitGroup.Add(1)
 				goLimit <- true
 
@@ -131,14 +143,9 @@ func ProcessMsg(conn *comm.Connection) error {
 					defer func() {
 						<-goLimit
 					}()
-					fdata, err := ioutil.ReadFile(path)
-					if err != nil {
-						fmt.Printf("ReadFile error: %s   %s\n", path, err.Error())
-						panic("ReadFile err: " + err.Error())
-						// return err
-					}
+
 					// fmt.Printf("Readfile %s  size: %d\n", fidMap[sumList.Fid], len(fdata))
-					patchList := MakePatch(fdata, sumList)
+					patchList := MakePatch(path, sumList)
 					patchList.Fid = sumList.Fid
 					// fmt.Printf(">patch size: %d\n", len(patchList.List))
 
@@ -158,7 +165,7 @@ func ProcessMsg(conn *comm.Connection) error {
 						// return err
 					}
 
-				}(fidPathMap[sumList.Fid], sumList)
+				}(fPath, sumList)
 			}
 
 			waitGroup.Wait()
