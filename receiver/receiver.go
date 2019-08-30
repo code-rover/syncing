@@ -30,7 +30,7 @@ var (
 	goMaxNum    = 4
 )
 
-var syncResult gproto.SyncResult
+var syncResult *gproto.SyncResult
 
 func RunServer() {
 	errwriter := bufio.NewWriter(os.Stderr)
@@ -45,18 +45,6 @@ func RunServer() {
 	ProcessMsg(conn)
 
 	fmt.Fprintf(os.Stderr, "msg server stoped\n")
-	data, err := proto.Marshal(&syncResult)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "msg Marsha syncResult error: %s\n", err.Error())
-		return
-	}
-
-	_, err = conn.Send(gproto.MSG_B_END, data)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "msg Send fidBytes  error: %s\n", err.Error())
-		return
-	}
-	// conn.Send(gproto.MSG_B_END, []byte{})
 }
 
 var taskWaitGroup = sync.WaitGroup{}
@@ -84,6 +72,9 @@ func ProcessMsg(conn *comm.Connection) error {
 				fmt.Fprintf(os.Stderr, "msg basePath error %s\n", err.Error())
 				return err
 			}
+			// var newSyncResult gproto.SyncResult
+			// syncResult = newSyncResult
+			syncResult = new(gproto.SyncResult)
 
 		} else if cmd == gproto.MSG_A_DIR_INFO {
 			ds := st.(*gproto.DirStruct)
@@ -121,13 +112,30 @@ func ProcessMsg(conn *comm.Connection) error {
 
 		} else if cmd == gproto.MSG_A_END {
 			fmt.Fprintf(os.Stderr, "msg recv end\n")
+			taskWaitGroup.Wait()
 
+			data, err := proto.Marshal(syncResult)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "msg Marsha syncResult error: %s\n", err.Error())
+				return err
+			}
+
+			_, err = conn.Send(gproto.MSG_B_END, data)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "msg Send fidBytes  error: %s\n", err.Error())
+				return err
+			}
+			//break
+
+		} else if cmd == gproto.MSG_A_SHUTDOWN {
+			fmt.Fprintf(os.Stderr, "msg receive MSG_A_SHUTDOWN\n")
 			break
+
 		} else {
 			break
 		}
 	}
-	taskWaitGroup.Wait()
+
 	return nil
 }
 

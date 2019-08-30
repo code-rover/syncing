@@ -6,6 +6,7 @@ const MSG_B_SUMLIST = 0x03
 const MSG_A_PATCHLIST = 0x04
 const MSG_A_END = 0x05
 const MSG_B_END = 0x06
+const MSG_A_SHUTDOWN = 0x07
 
 type Header struct {
 	Id  int8

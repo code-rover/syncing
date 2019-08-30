@@ -79,11 +79,6 @@ func Start(params *Params) error {
 		return errors.New("Marshal InitParam error: " + err.Error())
 	}
 
-	dirTreeData, err := ReadDirInfo()
-	if err != nil {
-		return errors.New(err.Error())
-	}
-
 	<-pipeDone //等待管道建立完成
 	rBuf := bufio.NewReader(stdout)
 	wBuf := bufio.NewWriter(stdin)
@@ -94,17 +89,36 @@ func Start(params *Params) error {
 		panic(err.Error())
 	}
 
-	_, err = conn.Send(gproto.MSG_A_DIR_INFO, dirTreeData)
-	if err != nil {
-		panic(err.Error())
+	for i := 0; i < 1; i++ {
+		fmt.Printf("syncing %d\n", i+1)
+
+		DoSync()
+		//time.Sleep(2 * time.Second)
 	}
 
-	ProcessMsg(conn)
+	_, err = conn.Send(gproto.MSG_A_SHUTDOWN, []byte{})
+	if err != nil {
+		panic(err)
+	}
 
 	<-subProcessDone
 	elapsed := time.Since(t1)
 	fmt.Printf("Done  %s\n", elapsed)
 	return nil
+}
+
+func DoSync() error {
+	dirTreeData, err := ReadDirInfo()
+	if err != nil {
+		return err
+	}
+
+	_, err = conn.Send(gproto.MSG_A_DIR_INFO, dirTreeData)
+	if err != nil {
+		return err
+	}
+
+	return ProcessMsg(conn)
 }
 
 func ProcessMsg(conn *comm.Connection) error {

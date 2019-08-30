@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"syncing/gproto"
 	"unsafe"
@@ -96,9 +97,12 @@ func (self *Connection) Recv() (int8, interface{}, error) {
 		var syncResult gproto.SyncResult
 		err = proto.Unmarshal(dataBuf, &syncResult)
 		return cmd, &syncResult, err
+
+	case gproto.MSG_A_SHUTDOWN:
+		return cmd, nil, nil
 	}
 
-	return 0, nil, errors.New("not hit")
+	return 0, nil, errors.New(fmt.Sprintf("not hit cmd: %d\n", cmd))
 }
 
 func (self *Connection) Flush() {
